@@ -452,7 +452,8 @@ const WARNING_CATEGORIES = new Set([
 
 // A paragraph made only of text and inline marks that render as-is must survive as ONE line,
 // character for character. This is the phrase-grep property, asserted over the whole corpus.
-const PLAIN_INLINE = new Set(['a', 'sup', 'sub', 'ins', 'signage', '#text']);
+// Text nodes never reach the set — they are skipped before it is consulted.
+const PLAIN_INLINE = new Set(['a', 'sup', 'sub', 'ins', 'signage']);
 function isPlainParagraph(p) {
   const stack = [p];
   while (stack.length) {
@@ -468,11 +469,35 @@ function isPlainParagraph(p) {
   return true;
 }
 
+// Which <p> elements belong to THIS unit — decided STRUCTURALLY, from the tree, never from what
+// happens to be in the output. Deciding it from the output is how the first version of this
+// assertion became a tautology: it skipped exactly the paragraphs that would have failed it.
+// Mirrors normalize.mjs's own body selection: the unit's roots, minus any subtree owned by a
+// nested unit or a skipped container.
+const UNIT_IDENTITY_TAGS = new Set(['title', 'sptc', 'glossterm']);
+function ownParagraphs(unit, unitNodes) {
+  const out = [];
+  const walk = (node, depth) => {
+    for (let c = node.firstChild; c; c = c.nextSibling) {
+      if (c.nodeType !== 1) continue;
+      if (unitNodes.has(c) || BODY_SKIP_TAGS.has(c.nodeName)) continue;   // another unit's file
+      if (depth === 0 && UNIT_IDENTITY_TAGS.has(c.nodeName)) continue;    // the H1 / frontmatter
+      if (c.nodeName === 'p') out.push(c);
+      walk(c, depth + 1);
+    }
+  };
+  if (unit.overview) for (const r of overviewChildren(unit.node)) walk(r, 1);
+  else walk(unit.node, 0);
+  return out;
+}
+
 for (const doc of DOCUMENTS_2025) {
   test(`${doc.key}: every unit normalizes, and the format invariants hold`, { skip: !have }, () => {
     const units = readDocument2025(fs.readFileSync(pathOf(doc.key), 'utf8'), doc);
     assert.ok(units.length > 0);
-    let chars = 0, withBody = 0;
+    const unitNodes = new Set(units.map(x => x.node));
+    let chars = 0, withBody = 0, paragraphs = 0;
+    const seenCategories = new Set();
     for (const u of units) {
       const who = `${doc.key} ${u.id ?? u.term ?? u.title}`;
       const { bodyMd, definedTerms, figures, warnings } = normalizeUnit(u, { year: '2025', cdnKey: doc.cdnKey });
@@ -487,25 +512,35 @@ for (const doc of DOCUMENTS_2025) {
         if (line.startsWith('![')) assert.match(line, FIGURE_RE, `${who}: malformed figure link`);
       }
       for (const w of warnings) {
-        assert.ok(WARNING_CATEGORIES.has(w.split(':')[0]), `${who}: unknown warning category ${w}`);
+        const category = w.split(':')[0];
+        assert.ok(WARNING_CATEGORIES.has(category), `${who}: unknown warning category ${w}`);
+        seenCategories.add(category);
       }
       for (const t of definedTerms) assert.ok(t && t === t.trim(), `${who}: bad defined term ${JSON.stringify(t)}`);
       for (const f of figures) assert.ok(f && !/[\\/]/.test(f), `${who}: bad figure name ${JSON.stringify(f)}`);
 
-      const lines = new Set(bodyMd.split('\n'));
-      for (const p of u.node.getElementsByTagName('p')) {
+      // THE phrase-grep property, over every paragraph the unit owns. A paragraph's text must be
+      // the suffix of some single line — prefixes ("**(1)** ", "> ", "(a) ", indentation) are
+      // legitimate, a line break anywhere inside the sentence is the defect this repo exists to
+      // fix. Asserted unconditionally: no paragraph is exempt.
+      const lines = bodyMd.split('\n');
+      for (const p of ownParagraphs(u, unitNodes)) {
         if (!isPlainParagraph(p)) continue;
         const text = (p.textContent ?? '').replace(/\s+/g, ' ').trim();
-        if (!text || text.length < 25) continue;
-        // Skip paragraphs owned by another unit or by a variation label.
-        if (!lines.has(text) && ![...lines].some(l => l.endsWith(text))) continue;
-        assert.ok([...lines].some(l => l === text || l.endsWith(text)),
-          `${who}: paragraph split across lines: ${JSON.stringify(text.slice(0, 60))}`);
+        if (!text) continue;                                   // 4 empty <p/> in the corpus
+        paragraphs++;
+        assert.ok(lines.some(l => l.endsWith(text)),
+          `${who}: paragraph does not survive as one line: ${JSON.stringify(text.slice(0, 80))}`);
       }
     }
-    // Guard against a normalizer that passes every invariant by emitting nothing.
+    // Guard against a normalizer that passes every invariant by emitting nothing — including the
+    // paragraph assertion above, which is vacuous if no paragraph is ever collected.
     assert.ok(withBody / units.length > 0.95, `${doc.key}: only ${withBody}/${units.length} units have a body`);
     assert.ok(chars / units.length > 200, `${doc.key}: mean body ${Math.round(chars / units.length)} chars — too thin`);
+    assert.ok(paragraphs > units.length, `${doc.key}: only ${paragraphs} paragraphs checked across ${units.length} units`);
+    // Pins the report's "0 in both". Either firing means a real shape the census never saw.
+    assert.ok(!seenCategories.has('orphan-num'), `${doc.key}: a <num> had no paragraph to label`);
+    assert.ok(!seenCategories.has('list-depth'), `${doc.key}: an <ol> nested past the style ladder`);
   });
 }
 
