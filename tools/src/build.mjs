@@ -83,6 +83,62 @@ export const PARITY = new Map([['2025', new Map([
  *  in content-model-2025.md's sense and are deliberately excluded from the parity column. */
 const PARITY_KINDS = new Set(['clause', 'glossary']);
 
+/**
+ * A parity delta, as a build FAILURE rather than a printed advisory.
+ *
+ * Every content unit in `content-model-2025.md`'s table must reach a file or be rendered inline,
+ * so a delta means units went missing between the XML and the corpus — data loss, and the exact
+ * thing a bulk run must stop for. An advisory prints into a scrollback nobody reads.
+ *
+ * Only whole documents are checked: the target counts a complete document, so a `--sections` slice
+ * has nothing to compare against and is skipped rather than reported as a phantom delta.
+ *
+ * @param {string} editionKey
+ * @param {Map<string, {units: Map, tableRefs: Map, full: boolean}>} parityByDoc
+ * @returns {?string} a report naming every disagreeing row, or null when everything reconciles.
+ */
+export function parityCheck(editionKey, parityByDoc) {
+  const expectedAll = PARITY.get(editionKey) ?? new Map();
+  const rows = [];
+  for (const [docKey, p] of parityByDoc) {
+    if (!p.full) continue;
+    const expected = expectedAll.get(docKey) ?? new Map();
+    const parents = [...new Set([...p.units.keys(), ...p.tableRefs.keys(), ...expected.keys()])].sort(byCodepoint);
+    for (const parent of parents) {
+      const u = p.units.get(parent) ?? 0;
+      const t = p.tableRefs.get(parent) ?? 0;
+      const e = expected.get(parent) ?? 0;
+      const delta = u + t - e;
+      if (delta !== 0) {
+        rows.push(`  ${docKey}  ${parent}: ${u} units + ${t} table-refs = ${u + t}, expected ${e} (delta ${delta > 0 ? '+' : ''}${delta})`);
+      }
+    }
+  }
+  if (!rows.length) return null;
+  return [
+    `build: parity delta in edition ${editionKey} — ${rows.length} row(s) disagree with `
+    + 'docs/content-model-2025.md. Every content unit in that table must reach a file or be '
+    + 'rendered inline, so a delta is units lost between the XML and the corpus. Find it; do not '
+    + 'tolerance it. A negative delta is content that vanished; a positive one is content counted '
+    + 'twice or a parent the content model does not record.',
+    ...rows,
+  ].join('\n');
+}
+
+/**
+ * A warning's category — the token before its first colon (normalize.mjs emits `category: detail`).
+ *
+ * A warning carrying no colon at all keeps its WHOLE name: `indexOf` returns -1 there, and
+ * `slice(0, -1)` would silently drop the last character, printing `mathml-flattene` as a category
+ * that looks like a typo in the source. Only an empty or colon-led string has no name to use.
+ */
+export function warningCategory(warning) {
+  const s = String(warning ?? '').trim();
+  const i = s.indexOf(':');
+  if (i > 0) return s.slice(0, i);
+  return i === 0 || !s ? 'uncategorised' : s;
+}
+
 /** Codepoint sort. Never localeCompare — locale-dependent order is not reproducible. */
 const byCodepoint = (a, b) => (a < b ? -1 : a > b ? 1 : 0);
 
@@ -161,17 +217,23 @@ export function inScope(unit, sections) {
  *            merges: Array<{relPath, docKey, senses}>}}
  * @throws when one path is claimed by two documents with different content.
  *
- * The three branches, and why each is not the others:
+ * The branches, and why each is not the others:
  *
  *  * SAME PATH, IDENTICAL BYTES -> written once. This is the expected cross-document case: the
- *    2025 glossary is embedded identically in every volume (~554 paths). Calling it a collision
- *    would fail every correct full build.
- *  * SAME PATH, DIFFERENT BYTES, SAME DOCUMENT -> merged under `## Definition n` headings in
- *    document order (R23). The NCC genuinely defines "Appropriate authority" twice with different
- *    meanings — one scoped to the Fire Safety Verification Method, one general. An agent grepping
- *    the term must see BOTH; missing the FSVM-scoped one is a compliance error. A hash or counter
- *    suffix would hide one sense behind a filename nobody globs for, and a counter would also make
- *    the name depend on document order, breaking byte-identical regeneration.
+ *    2025 glossary is embedded in every volume. Calling it a collision would fail correct builds.
+ *  * SAME PATH, DIFFERENT BYTES, SAME DOCUMENT, EVERY UNIT A GLOSSARY ENTRY -> merged under
+ *    `## Definition n` headings in document order (R23). The NCC genuinely defines "Appropriate
+ *    authority" twice with different meanings — one scoped to the Fire Safety Verification Method,
+ *    one general. An agent grepping the term must see BOTH; missing the FSVM-scoped one is a
+ *    compliance error. A hash or counter suffix would hide one sense behind a filename nobody
+ *    globs for, and a counter would make the name depend on document order, breaking
+ *    byte-identical regeneration.
+ *  * SAME PATH, DIFFERENT BYTES, SAME DOCUMENT, ANY OTHER KIND -> throws. The merge is scoped to
+ *    the glossary deliberately. R23's justification is a *glossary term carrying two senses*; it
+ *    has no application to a clause or a page, where one filename claimed by two units means the
+ *    naming rule lost a distinguishing attribute. That is ⊕ trap 1 exactly — Volume Two Part H6's
+ *    NSW overview colliding with the national body inside one document — and absorbing it into a
+ *    `## Definition n` file would report the corpus's worst defect class as an informational line.
  *  * SAME PATH, DIFFERENT BYTES, DIFFERENT DOCUMENTS -> throws. Merging would fabricate a
  *    definition the NCC does not publish; picking one would silently drop the other. Measured: the
  *    2025 glossary term "Hours of operation" differs between Volume One and Volumes Two/Three (an
@@ -192,30 +254,40 @@ export function resolveUniqueness(records) {
 
   const write = new Map();
   const mergesByPath = new Map();
-  const conflicts = [];
+  const sameDoc = [];
+  const crossDoc = [];
   let duplicates = 0;
 
   for (const relPath of [...byPath.keys()].sort(byCodepoint)) {
     const perDocContent = [];
+    let collided = false;
     for (const [docKey, recs] of byPath.get(relPath)) {
       const distinct = [];
       for (const r of recs) if (!distinct.some(d => d.content === r.content)) distinct.push(r);
       duplicates += recs.length - distinct.length;
       if (distinct.length === 1) { perDocContent.push({ docKey, content: distinct[0].content }); continue; }
+      if (!distinct.every(r => r.unit?.kind === 'glossary')) {
+        sameDoc.push({ relPath, docKey, variants: distinct });
+        collided = true;
+        continue;
+      }
       // Reported once per path, not once per document: the same two senses recur in every volume
       // that embeds the glossary, and four identical report lines would read like four problems.
       if (!mergesByPath.has(relPath)) mergesByPath.set(relPath, { relPath, docKey, senses: distinct.length });
       perDocContent.push({ docKey, content: mergeSenses(distinct) });
     }
+    // A path that already failed inside one document is not also compared across documents: the
+    // build is failing either way, and the second report would be noise on top of the real one.
+    if (collided) continue;
 
     const variants = [];
     for (const c of perDocContent) if (!variants.some(v => v.content === c.content)) variants.push(c);
     duplicates += perDocContent.length - variants.length;
     if (variants.length === 1) write.set(relPath, variants[0].content);
-    else conflicts.push({ relPath, variants });
+    else crossDoc.push({ relPath, variants });
   }
 
-  if (conflicts.length) throw conflictError(conflicts);
+  if (sameDoc.length || crossDoc.length) throw conflictError({ sameDoc, crossDoc });
   return { write, duplicates, merges: [...mergesByPath.values()] };
 }
 
@@ -237,20 +309,37 @@ function bodyOf(content) {
   return end === -1 ? content : content.slice(end + 5);
 }
 
-function conflictError(conflicts) {
+function conflictError({ sameDoc, crossDoc }) {
   // MEASURED 2026-08-14, all five 2025 documents: 555 glossary paths are shared across documents
   // and NONE is byte-identical, because `volume:`, `citation:` (the V1/V2/V3/HP prefix) and
   // `web_url:` are all volume-specific. 545 differ ONLY in that provenance; 10 differ in body
   // text. Reporting those as one undifferentiated list of 555 would bury the ten that matter, so
   // they are split: the provenance class is one decision taken once, the body class is ten
   // separate readings of the published text.
-  const provenance = conflicts.filter(c => c.variants.every(v => bodyOf(v.content) === bodyOf(c.variants[0].content)));
-  const substantive = conflicts.filter(c => !provenance.includes(c));
+  const provenance = crossDoc.filter(c => c.variants.every(v => bodyOf(v.content) === bodyOf(c.variants[0].content)));
+  const substantive = crossDoc.filter(c => !provenance.includes(c));
+  const total = sameDoc.length + crossDoc.length;
   const lines = [
-    `build: ${conflicts.length} path${conflicts.length === 1 ? '' : 's'} claimed by two or more documents with `
-    + 'DIFFERENT content. Neither merging nor picking one is safe: merging fabricates text the NCC '
-    + 'does not publish, and picking silently drops the other. Rule on each class below.',
+    `build: ${total} path${total === 1 ? '' : 's'} claimed by more than one unit with DIFFERENT `
+    + 'content. Neither merging nor picking one is safe: merging fabricates text the NCC does not '
+    + 'publish, and picking silently drops the other. Rule on each class below.',
   ];
+
+  if (sameDoc.length) {
+    // The worst class, so it is reported first. It means two units in ONE document derived the
+    // same filename — the identity failure ⊕ trap 4 exists to catch, whose measured instance was
+    // a state attribute missing from a filename derivation (⊕ trap 1).
+    lines.push('', `  [S] ${sameDoc.length} path(s) collide INSIDE one document — two units derived one filename.`,
+      '      Without this check the second silently overwrites the first. The filename rule has lost',
+      '      an attribute that distinguishes them; `state` is the measured culprit. Merging is only',
+      '      ever right for a glossary term that genuinely carries two senses (R23).');
+    for (const { relPath, docKey, variants } of sameDoc) {
+      lines.push(`      ${relPath}  (${docKey})`);
+      const named = variants.map(v => ({ docKey: labelOf(v), content: v.content }));
+      for (const v of named) lines.push(`        ${v.docKey} — ${v.content.length} bytes`);
+      lines.push(...diffSummary(named).map(l => `    ${l}`));
+    }
+  }
 
   if (provenance.length) {
     lines.push('', `  [A] ${provenance.length} path(s) differ ONLY in provenance frontmatter — the body text is identical.`,
@@ -264,7 +353,7 @@ function conflictError(conflicts) {
   }
 
   if (substantive.length) {
-    lines.push('', `  [B] ${substantive.length} path(s) differ in BODY TEXT — genuinely different published text under one name.`,
+    lines.push('', `  [B] ${substantive.length} path(s) differ in BODY TEXT across documents — genuinely different published text under one name.`,
       '      Each needs its own reading of the source; there is no blanket rule.');
     for (const { relPath, variants } of substantive) {
       lines.push(`      ${relPath}`);
@@ -273,6 +362,12 @@ function conflictError(conflicts) {
     }
   }
   return new Error(lines.join('\n'));
+}
+
+/** How a colliding unit is named in a same-document conflict report. */
+function labelOf(record) {
+  const u = record.unit ?? {};
+  return [u.kind, u.id ?? u.term ?? u.title, u.state ? `[${u.state}]` : ''].filter(Boolean).join(' ');
 }
 
 /**
@@ -423,7 +518,7 @@ function buildEdition(editionKey, opts) {
       for (const src of normalized.figures) stats.figures.add(`${ed.year}/${doc.cdnKey}/${src}`);
       figures += normalized.figures.length;
       for (const w of normalized.warnings) {
-        const cat = w.slice(0, w.indexOf(':')) || 'uncategorised';
+        const cat = warningCategory(w);
         stats.warnings.set(cat, (stats.warnings.get(cat) ?? 0) + 1);
         warnings++;
       }
@@ -454,6 +549,8 @@ function buildEdition(editionKey, opts) {
     resolved = resolveUniqueness(records);
   } catch (e) { failures.push(e.message); }
   if (unresolvedClauses.length) failures.push(unresolvedClauseError(editionKey, unresolvedClauses));
+  const parityFailure = parityCheck(editionKey, stats.parity);
+  if (parityFailure) failures.push(parityFailure);
 
   const firstByPath = new Map();
   for (const r of records) if (!firstByPath.has(r.relPath)) firstByPath.set(r.relPath, r.unit);
@@ -556,9 +653,19 @@ const pct = (n, d) => (d ? `${((n / d) * 100).toFixed(1)}%` : 'n/a');
 const pad = (s, n) => String(s).padEnd(n);
 const padL = (s, n) => String(s).padStart(n);
 
-function report(built, io, opts) {
+/**
+ * @param {object} built  a buildEdition result
+ * @param {?{written, removedFiles, removedDirs, kept}} io  null when nothing was written — either
+ *   because THIS edition failed its assertions or because another edition in the same run did.
+ *   Both cases must render; reading `io.written` on a passing edition inside a failing run is a
+ *   null deref that would replace the whole report with a TypeError.
+ * @param {object} opts   parseArgs output
+ */
+export function report(built, io, opts) {
   const s = built.stats;
-  const out = [RULE, `NCC corpus build — edition ${built.editionKey}${built.failures.length ? '   *** FAILED — NOTHING WRITTEN ***' : ''}`];
+  const banner = built.failures.length ? '   *** FAILED — NOTHING WRITTEN ***'
+    : io ? '' : '   *** NOT WRITTEN — another edition in this run failed ***';
+  const out = [RULE, `NCC corpus build — edition ${built.editionKey}${banner}`];
   out.push(`scope: volumes = ${opts.volumes ? opts.volumes.join(',') : 'all'}`
     + ` · sections = ${opts.sections ? opts.sections.join(',') : 'all'}`);
   out.push('-'.repeat(78));
@@ -574,9 +681,9 @@ function report(built, io, opts) {
   out.push(`${pad('warnings', 22)}${warnTotal}${warnTotal ? ` — ${[...s.warnings.keys()].sort(byCodepoint).map(k => `${k} ${s.warnings.get(k)}`).join(' · ')}` : ''}`);
   out.push(`${pad('uniqueness', 22)}${s.paths} paths · ${s.duplicates} identical duplicate${s.duplicates === 1 ? '' : 's'} · ${s.merges.length} merged`);
   for (const m of s.merges) out.push(`${pad('', 22)}merged ${m.senses} senses into ${m.relPath} (first seen in ${m.docKey})`);
-  out.push(built.failures.length
-    ? `${pad('files', 22)}NOTHING WRITTEN — the assertions below failed, so the previous corpus is untouched`
-    : `${pad('files', 22)}written ${io.written} · deleted ${io.removedFiles} · directories removed ${io.removedDirs} · left in place ${io.kept}`);
+  out.push(io
+    ? `${pad('files', 22)}written ${io.written} · deleted ${io.removedFiles} · directories removed ${io.removedDirs} · left in place ${io.kept}`
+    : `${pad('files', 22)}NOTHING WRITTEN — this run failed its assertions, so the previous corpus is untouched`);
   // A run only audits the directories of the documents it selected. Saying which ones it did NOT
   // look at is the difference between "the corpus is clean" and "the part of it I rebuilt is
   // clean" — and only the second is true after a --volumes slice.
@@ -617,9 +724,11 @@ function parityBlock(built) {
     lines.push(`    ${pad('TOTAL', 22)}${padL(tu, 8)}${padL(tt, 13)}${padL(tu + tt, 8)}`
       + (p.full ? `${padL(te, 10)}${padL(tu + tt - te, 8)}` : ''));
   }
-  // A delta is data loss, so it gets its own banner rather than a number in a column of numbers.
+  // A delta is data loss, so it gets its own banner rather than a number in a column of numbers —
+  // and parityCheck has already turned it into a build failure, so this is a pointer to the
+  // detail, not the whole story.
   lines.push('', deltas
-    ? `  !! PARITY DELTA on ${deltas} row(s) — every unit in that table must reach a file or be rendered inline. Find it; do not tolerance it.`
+    ? `  !! PARITY DELTA on ${deltas} row(s) — the build FAILS on this; see the assertion detail below.`
     : '  parity: no full-document deltas');
   return lines.join('\n');
 }

@@ -60,6 +60,32 @@ function idToken(id) {
  */
 const PROBE = 'C2D2';
 
+/**
+ * A prose figure reference. Both details are measured, not defensive:
+ *
+ *  * the optional jurisdiction prefix — `see Figure NT 10.7.1a` appears 3 times, and the figure it
+ *    names is embedded with num `10.7.1a`, so a pattern without it captures `NT` and looks for a
+ *    figure called NT;
+ *  * `[A-Za-z0-9.]*` runs into the sentence's punctuation — 149 references are followed directly
+ *    by `.`, `,` or `)`, so `see Figure H1D4a.` yields the designation `H1D4a.`. figKey strips it.
+ */
+const FIGURE_REF = /\bsee Figure (?:(?:ACT|NSW|NT|QLD|SA|TAS|VIC|WA)\s+)?([A-Za-z0-9][A-Za-z0-9.]*)/gi;
+
+/**
+ * One figure designation, canonical, from either side: a prose reference (`H1D4a.`) or an embed's
+ * alt text (`H1D4a (explanatory): Footing details`). Measured shapes: 33 embeds carry a
+ * ` (explanatory)` qualifier and one carries a bare ` explanatory`; every embed with a caption
+ * separates it with `: `.
+ */
+function figKey(raw) {
+  return String(raw).split(':')[0].trim()
+    .replace(/\s*\(.*$/, '')                                    // " (explanatory)" and anything after
+    .replace(/\s+explanatory$/i, '')
+    .replace(/[.,;:)\]]+$/, '')                                 // sentence punctuation
+    .replace(/^(?:ACT|NSW|NT|QLD|SA|TAS|VIC|WA)\s+/i, '')       // prose carries it, the embed does not
+    .toLowerCase();
+}
+
 if (!editions.length) {
   test('acceptance suite is idle — no corpus/ built yet', (t) => {
     t.skip('corpus/2022 and corpus/2025 are both absent; run `npm run build` first');
@@ -119,16 +145,49 @@ for (const ed of editions) {
     assert.ok(files(ed).some(f => read(f).includes('AS 1530.4')));
   });
 
-  test(`[${ed}] #4 figure links live in the citing file`, () => {
-    // "Chase the figure" cannot happen by construction: normalize.mjs writes the figure's
-    // designation into its alt text, so the citing prose and the figure match the same grep.
-    for (const f of files(ed)) {
-      const c = read(f);
-      for (const m of c.matchAll(/see Figure ([A-Za-z0-9.]+)/gi)) {
-        const ok = c.includes(`![Figure ${m[1]}`) || c.includes(`# Figure ${m[1]}`) || c.match(new RegExp(`!\\[[^\\]]*${m[1].replace('.', '\\.')}`));
-        assert.ok(ok, `${f}: cites Figure ${m[1]} without carrying it`);
+  test(`[${ed}] #4 a cited figure is always reachable in one grep`, (t) => {
+    // The promise an agent depends on: it never has to hunt for a figure. Two ways to keep it,
+    // and the corpus must do one of them for EVERY reference:
+    //   * the citing file embeds the figure itself — normalize.mjs writes the designation into
+    //     the alt text, so the prose and the figure match the same grep; or
+    //   * exactly ONE file in the corpus embeds it, so one `grep -rl` lands on it.
+    //
+    // Deliberately weaker than "every citing file embeds every figure it cites", which was the
+    // first formulation and is FALSE OF THE NCC ITSELF. Measured over the whole 2025 corpus: 131
+    // references split 114 embedded in the citing file / 17 genuine cross-file references in the
+    // published source (a clause citing a neighbouring clause's figure — 9.2.3 cites Figure
+    // 9.2.2e; a glossary entry cites a Housing Provisions figure). A test demanding what the
+    // source does not do gets "fixed" by mangling the normalizer, which is the opposite of what
+    // it is for. It stays strong where it counts — measured 0 references resolving to no file and
+    // 0 resolving ambiguously — so a figure the normalizer actually dropped still fails here.
+    const contents = new Map(files(ed).map(f => [f, read(f)]));
+    const embedders = new Map();          // figure designation -> files embedding it
+    for (const [f, c] of contents) {
+      for (const m of c.matchAll(/!\[Figure([^\]]*)\]/g)) {
+        const k = figKey(m[1]);
+        if (!k) continue;                 // an untitled figure carries no designation to cite
+        if (!embedders.has(k)) embedders.set(k, new Set());
+        embedders.get(k).add(f);
       }
     }
+    let refs = 0;
+    for (const [f, c] of contents) {
+      for (const m of c.matchAll(FIGURE_REF)) {
+        refs++;
+        const k = figKey(m[1]);
+        const who = embedders.get(k) ?? new Set();
+        if (who.has(f)) continue;
+        assert.ok(who.size > 0,
+          `${f}: cites Figure ${m[1]}, which NO file in corpus/${ed} embeds — the normalizer dropped the figure`);
+        assert.equal(who.size, 1,
+          `${f}: cites Figure ${m[1]}, embedded by ${who.size} files, so one grep does not reach it — ${[...who].join(', ')}`);
+      }
+    }
+    // Say so out loud when a slice contains no reference at all: this test then asserted nothing,
+    // and a silent pass is indistinguishable from a real one. (Measured: Sections A+C of Volume
+    // One contain 10 figures and zero `see Figure` references, so the pilot slice is exactly this
+    // case; the full corpus has 131.)
+    if (!refs) t.diagnostic(`no figure references in corpus/${ed} — this slice does not exercise #4`);
   });
 
   test(`[${ed}] #5 grep -A window self-citing: citation+web_url in first 6 lines`, () => {

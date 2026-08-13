@@ -15,7 +15,10 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
-import { EDITIONS, PARITY, inScope, parseArgs, planReconcile, resolveUniqueness } from '../src/build.mjs';
+import {
+  EDITIONS, PARITY, inScope, parityCheck, parseArgs, planReconcile, report, resolveUniqueness,
+  warningCategory,
+} from '../src/build.mjs';
 
 /* ============================================================ *
  * 1. Arguments                                                  *
@@ -153,6 +156,53 @@ test('branch 2 stays stable when the same in-document merge repeats in another d
   assert.equal(resolveUniqueness(emitted(recs.slice(2).concat(recs.slice(0, 2)))).write.get('2025/glossary/appropriate-authority.md'), md);
 });
 
+test('branch 2 is GLOSSARY-ONLY — a same-document collision between two pages throws (⊕ trap 1)', () => {
+  // The merge exists because a glossary term can genuinely carry two senses (R23). Applied to any
+  // kind it becomes a data-loss absorber, so it is scoped to `kind === 'glossary'`. This fixture
+  // IS ⊕ trap 1: Volume Two Part H6's NSW "does not apply in NSW" overview colliding with the
+  // national body inside one document, which happened for real when the state token went missing
+  // from the filename. Absorbing that into `## Definition 1` / `## Definition 2` and reporting one
+  // informational line is precisely the silent overwrite trap 4 exists to turn into a failure.
+  const page = (title, body, state) => ({
+    docKey: 'volume-two',
+    unit: { edition: '2025', volume: 'volume-two', kind: 'page', overview: true, title, state, containerKind: 'part', containerNum: 'H6' },
+    normalized: { bodyMd: body, definedTerms: [], figures: [], warnings: [], tableRefs: [] },
+    emitOpts: { citationPrefix: 'NCC 2025 V2', webUrl: 'https://ncc.abcb.gov.au/x' },
+    relPath: '2025/volume-two/part-h6-energy-efficiency.md',
+    content: `---\ntitle: ${title}\n---\n\n# ${title}\n\n${body}\n`,
+  });
+  let err;
+  try {
+    resolveUniqueness([
+      page('Energy efficiency', 'The national Part H6 provisions apply.', null),
+      page('Energy efficiency', 'This Part been deliberately left blank.', 'NSW'),
+    ]);
+  } catch (e) { err = e; }
+  assert.ok(err, 'a non-glossary same-document collision must throw, not merge');
+  assert.ok(!err.message.includes('## Definition'), 'it must not be absorbed into a merged file');
+  assert.match(err.message, /2025\/volume-two\/part-h6-energy-efficiency\.md/);
+  assert.match(err.message, /volume-two/);
+  assert.match(err.message, /NSW/, 'the report names the units, so the lost attribute is visible');
+  assert.match(err.message, /deliberately left blank/, 'and shows the differing text');
+});
+
+test('a same-document collision mixing a glossary entry with another kind throws too', () => {
+  // Merging is scoped to collisions where EVERY colliding unit is a glossary entry. A glossary
+  // term sharing a filename with a clause is a naming failure, not a term with two senses.
+  const at = (kind, body, extra) => ({
+    docKey: 'volume-one',
+    unit: { edition: '2025', volume: 'volume-one', kind, title: 'X', state: null, ...extra },
+    normalized: { bodyMd: body, definedTerms: [], figures: [], warnings: [], tableRefs: [] },
+    emitOpts: { citationPrefix: 'NCC 2025 V1', webUrl: 'https://ncc.abcb.gov.au/x' },
+    relPath: '2025/volume-one/x.md',
+    content: `---\ntitle: X\n---\n\n# X\n\n${body}\n`,
+  });
+  assert.throws(
+    () => resolveUniqueness([at('glossary', 'a term', { term: 'X' }), at('clause', 'a clause', { id: 'X1' })]),
+    /collide INSIDE one document/,
+  );
+});
+
 test('branch 3 — the same path with different content from DIFFERENT documents throws', () => {
   // Measured: "Hours of operation" reads differently in Volumes Two/Three (an ABCB typo) than in
   // Volume One. Merging it would fabricate a definition the NCC does not publish; picking one
@@ -240,7 +290,6 @@ test('a file this run did not build but COULD build is kept — a slice does not
   // `--sections A` must not destroy the Section C files a previous `--sections C` run wrote.
   const p = planReconcile({
     ...RECONCILE,
-    write: new Set(['2025/volume-one/a5g7-x.md']),
     present: ['2025/volume-one/', '2025/volume-one/a5g7-x.md', '2025/volume-one/c2d2-y.md', '2025/glossary/', '2025/glossary/abcb.md'],
   });
   assert.deepEqual(p.removePaths, []);
@@ -297,6 +346,81 @@ test('the parity targets are transcribed correctly — independent per-document 
     const got = [...PARITY.get('2025').get(doc).values()].reduce((a, b) => a + b, 0);
     assert.equal(got, want, `${doc}: parity rows sum to ${got}, not ${want}`);
   }
+});
+
+// A document that reconciles perfectly: every expected row met by units alone. Derived FROM the
+// parity table, so these fixtures also prove the check compares against the real transcription.
+const reconciling = (docKey = 'volume-one') =>
+  new Map([[docKey, { units: new Map(PARITY.get('2025').get(docKey)), tableRefs: new Map(), full: true }]]);
+
+test('a parity delta is an ERROR, not an advisory — data loss must stop a bulk run', () => {
+  assert.equal(parityCheck('2025', reconciling()), null, 'a reconciling document must not report');
+
+  const short = reconciling();
+  short.get('volume-one').units.set('subtopic', 868 - 8);      // eight units lost
+  const err = parityCheck('2025', short);
+  assert.ok(err, 'a delta must be reported as a failure');
+  assert.equal(err.split('\n').length, 2, 'only the disagreeing row is listed');
+  assert.match(err, /volume-one/);
+  assert.match(err, /subtopic/);
+  assert.match(err, /expected 868/);
+  assert.match(err, /delta -8/);
+});
+
+test('units and inline table-references are summed before comparing (R5)', () => {
+  // volume-one's `clause` row is 103 nested clause-variations + 233 inline table-references = 336.
+  // Either column alone is a delta; only the sum reconciles.
+  const split = new Map([['volume-one', {
+    units: new Map(PARITY.get('2025').get('volume-one')).set('clause', 103),
+    tableRefs: new Map([['clause', 233]]),
+    full: true,
+  }]]);
+  assert.equal(parityCheck('2025', split), null);
+});
+
+test('a slice is not parity-checked — the target counts whole documents', () => {
+  const sliced = new Map([['volume-one', { units: new Map([['subtopic', 35]]), tableRefs: new Map(), full: false }]]);
+  assert.equal(parityCheck('2025', sliced), null);
+});
+
+test('a parent the content model does not list at all is a delta, not a silent extra', () => {
+  const extra = reconciling();
+  extra.get('volume-one').units.set('made-up-parent', 3);
+  const err = parityCheck('2025', extra);
+  assert.match(err, /made-up-parent/);
+  assert.match(err, /delta \+3/);
+});
+
+test('a warning with no colon keeps its whole name — indexOf(-1) must not eat the last character', () => {
+  assert.equal(warningCategory('mathml-flattened: R/S'), 'mathml-flattened');
+  assert.equal(warningCategory('mathml-flattened'), 'mathml-flattened');
+  assert.equal(warningCategory(': leading colon'), 'uncategorised');
+  assert.equal(warningCategory(''), 'uncategorised');
+});
+
+test('the report does not deref a null io — an edition that passed inside a failing run', () => {
+  // main() reports every edition when ANY of them fails, so a PASSING edition is rendered with
+  // io === null. Unreachable while EDITIONS holds one edition; reachable the moment a second
+  // reader lands.
+  const built = {
+    editionKey: '2025',
+    failures: [],
+    editionDirs: new Set(['volume-one']),
+    ownedDirs: new Set(['volume-one']),
+    unresolvedOther: [],
+    stats: {
+      perDoc: [{ key: 'volume-one', read: 10, scoped: 10, figures: 0, warnings: 0 }],
+      kinds: new Map([['clause', 10]]),
+      warnings: new Map(),
+      figures: new Set(),
+      webUrl: new Map([['clause', { resolved: 10, total: 10 }]]),
+      parity: new Map([['volume-one', { units: new Map(), tableRefs: new Map(), full: false }]]),
+      duplicates: 0, merges: [], paths: 10,
+    },
+  };
+  const text = report(built, null, { volumes: null, sections: null });
+  assert.match(text, /NOT WRITTEN/);
+  assert.match(text, /clause 10\/10/);
 });
 
 test('every edition with a reader has its documents, its parity table and its committed link file', () => {
