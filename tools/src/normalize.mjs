@@ -109,12 +109,20 @@ const LIST_STYLES = {
 /**
  * @param {object} unit  a RawUnit from read-2025.mjs / read-2022.mjs
  * @param {{cdnBase?: string, year: string, cdnKey: string}} opts
- * @returns {{bodyMd: string, definedTerms: string[], figures: string[], warnings: string[]}}
+ * @returns {{bodyMd: string, definedTerms: string[], figures: string[], warnings: string[],
+ *           tableRefs: string[]}}
+ *   `tableRefs` is the immediate-parent element name of every `<table-reference>` this call
+ *   RENDERED, one per occurrence. `docs/content-model-2025.md` counts table-reference as a
+ *   content unit alongside clause and glossentry, but this module renders it inline instead of
+ *   emitting a file — so emitted units alone can never reconcile with that table. The build adds
+ *   this column to close the gap (R5), and counting at render time rather than by a second DOM
+ *   pass is what makes it evidence: it proves each table-reference reached the markdown, not
+ *   merely that it exists in the XML.
  */
 export function normalizeUnit(unit, { cdnBase = DEFAULT_CDN_BASE, year, cdnKey } = {}) {
   const st = {
     unit, cdnBase, year, cdnKey,
-    definedTerms: new Set(), figures: new Set(), warnings: [],
+    definedTerms: new Set(), figures: new Set(), warnings: [], tableRefs: [],
     pendingNum: null,
   };
 
@@ -131,6 +139,7 @@ export function normalizeUnit(unit, { cdnBase = DEFAULT_CDN_BASE, year, cdnKey }
     definedTerms: [...st.definedTerms],
     figures: [...st.figures],
     warnings: st.warnings,
+    tableRefs: st.tableRefs,
   };
 }
 
@@ -448,6 +457,10 @@ function romanLabel(i) {
 
 function renderTableReference(node, sink, st, depth) {
   const { taken, rest } = partition(node, ['title']);
+  // Only the plain element is counted: content-model-2025.md's unit table counts
+  // `table-reference` and not `table-reference-variation` / `table-variation`, so counting those
+  // too would inflate the parity column past the number it is checked against.
+  if (node.nodeName === 'table-reference') st.tableRefs.push(node.parentNode?.nodeName ?? '(no parent)');
   if (node.nodeName !== 'table-reference') sink.block(`**${variationLabel(node)}**`);
   const num = (node.getAttribute('num') ?? '').replace(/\s+/g, ' ').trim();
   const title = taken.title ? inlineChildren(taken.title, st) : '';

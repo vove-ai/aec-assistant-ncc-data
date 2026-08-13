@@ -101,6 +101,30 @@ export function unitFilename(unit) {
 }
 
 /**
+ * Where a unit's file lives, corpus-relative and with `/` separators on every platform.
+ *
+ * Split out of `emitUnit` because the build needs the path of units it is NOT emitting this run:
+ * a sliced build has to know every file the current toolchain COULD produce for the documents it
+ * selected, so that anything else in those directories can be deleted as stale. Deriving that
+ * second answer from a copy of this rule is how a slice ends up deleting a live file.
+ *
+ * @param {object} unit  a RawUnit
+ * @param {{glossaryDir?: string}} [opts]
+ * @returns {string} e.g. `2025/volume-one/a5g7-resistance-to-the-incipient-spread-of-fire.md`
+ */
+export function unitRelPath(unit, { glossaryDir = 'glossary' } = {}) {
+  if (!unit?.edition) throw identityError('no edition — the corpus path cannot be built', unit);
+  const dir = unit.kind === 'glossary' ? glossaryDir : unit.volume;
+  if (!dir) throw identityError('no volume to place the file in', unit);
+  // The build writes files straight from relPath, so the one part of it this module does not
+  // generate character by character is checked before it becomes a path.
+  if (/(^|\/)\.\.(\/|$)|\\|^\/|^[A-Za-z]:/.test(dir)) {
+    throw identityError(`directory ${JSON.stringify(dir)} is not a safe corpus-relative path`, unit);
+  }
+  return `${unit.edition}/${dir}/${unitFilename(unit)}`;
+}
+
+/**
  * @param {object} unit        a RawUnit
  * @param {{bodyMd: string, definedTerms: string[]}} normalized  normalizeUnit's output
  * @param {{citationPrefix: string, webUrl?: string|null, glossaryDir?: string}} opts
@@ -108,14 +132,7 @@ export function unitFilename(unit) {
  */
 export function emitUnit(unit, normalized, { citationPrefix, webUrl = null, glossaryDir = 'glossary' } = {}) {
   if (!citationPrefix) throw identityError('no citationPrefix — a file must never ship uncitable', unit);
-  if (!unit?.edition) throw identityError('no edition — the corpus path cannot be built', unit);
-  const dir = unit.kind === 'glossary' ? glossaryDir : unit.volume;
-  if (!dir) throw identityError('no volume to place the file in', unit);
-  // Task 7 writes files straight from relPath, so the one part of it this module does not
-  // generate character by character is checked before it becomes a path.
-  if (/(^|\/)\.\.(\/|$)|\\|^\/|^[A-Za-z]:/.test(dir)) {
-    throw identityError(`directory ${JSON.stringify(dir)} is not a safe corpus-relative path`, unit);
-  }
+  const relPath = unitRelPath(unit, { glossaryDir });
 
   const isClause = unit.kind === 'clause';
   const rows = [];
@@ -147,7 +164,7 @@ export function emitUnit(unit, normalized, { citationPrefix, webUrl = null, glos
     normalized?.bodyMd ?? '',
   ].filter(Boolean);
 
-  return { relPath: `${unit.edition}/${dir}/${unitFilename(unit)}`, content: `${blocks.join('\n\n')}\n` };
+  return { relPath, content: `${blocks.join('\n\n')}\n` };
 }
 
 /* -- identity tokens --------------------------------------------------------- */

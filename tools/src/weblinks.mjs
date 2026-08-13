@@ -224,8 +224,10 @@ export function buildLinkIndex(urls) {
  *
  * Never throws: an unresolved unit is an outcome the build reports and rules on, not a crash.
  *
- * @param {object} unit  a RawUnit (volume, sectionNum, containerNum, containerTitle, state, kind, id, title)
- * @param {Map} index    buildLinkIndex output
+ * @param {object} unit       a RawUnit (volume, sectionNum, containerNum, containerTitle, state, kind, id, title)
+ * @param {LinkIndex} index   buildLinkIndex output. A plain Map is REFUSED, not half-trusted: it
+ *   has lost `.edition`, whose guard reads `unit.edition && index.edition && …` and is therefore
+ *   no guard at all when the property is missing. Pass the index through exactly as returned.
  * @returns {string|null}
  */
 export function resolveWebUrl(unit, index) {
