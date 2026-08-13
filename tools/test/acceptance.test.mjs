@@ -132,10 +132,12 @@ for (const ed of editions) {
     const byLead = new Map();     // leading filename token -> files
     const byClause = new Map();   // frontmatter clause id  -> files
     const identity = new Map();   // file -> "{volume}|{jurisdiction}"
+    const volumeOf = new Map();   // file -> its own `volume:` value
     for (const f of files(ed)) {
       const lead = path.basename(f).replace(/\.md$/, '').split('-')[0];
       byLead.set(lead, [...(byLead.get(lead) ?? []), f]);
       const c = read(f);
+      volumeOf.set(f, fm(c, 'volume'));
       identity.set(f, `${fm(c, 'volume')}|${fm(c, 'jurisdiction')}`);
       const id = clauseOf(c);
       if (id) byClause.set(id, [...(byClause.get(id) ?? []), f]);
@@ -155,6 +157,18 @@ for (const ed of editions) {
       const identities = byClause.get(id).map(f => identity.get(f));
       assert.equal(new Set(identities).size, identities.length,
         `${ed}: two files for clause ${id} share a volume and jurisdiction, so a glob hit cannot be resolved: ${byClause.get(id).join(', ')}`);
+      // …and the discriminator is visible in the PATH, not only in the frontmatter. Identity
+      // uniqueness alone would be satisfied by a corpus where both C2D2 files sat in ONE
+      // directory, told apart only by a line inside them — and the promise this repo makes is
+      // that a glob LANDS on the right file, not that an agent can open both hits and work it
+      // out. Directory basename equality is the exact form of "the dirname ends with the
+      // volume"; a bare endsWith would also accept `…/xvolume-one`.
+      // Clause files only. A glossary term is one file per EDITION and lives in `glossary/` by
+      // construction (emit.mjs `unitRelPath`), so its `volume:` records provenance, not location.
+      for (const f of byClause.get(id)) {
+        assert.equal(path.basename(path.dirname(f)), volumeOf.get(f),
+          `${ed}: clause ${id} at ${f} declares volume: ${volumeOf.get(f)} but does not live in that directory — the discriminator is invisible to a glob`);
+      }
     }
 
     // The documented worked example is a SUBTEST so that a slice which does not contain it skips
@@ -176,6 +190,22 @@ for (const ed of editions) {
       for (const f of hits) {
         assert.ok(!seen.has(identity.get(f)), `${f}: a second ${PROBE} file for ${identity.get(f)} — the glob hits cannot be told apart`);
         seen.add(identity.get(f));
+      }
+      // The design doc's worked example is specifically the VOLUME ONE clause ("Type of
+      // construction required"). Identity uniqueness says the hits are distinguishable; it does
+      // not say the one the doc names is among them, so on its own it stays green while the
+      // worked example is misfiled into another volume or lost entirely behind the Volume Three
+      // homonym ("Invert levels"), which is a different clause with the same designation.
+      //
+      // Gated on volume-one having been BUILT, and only on that: a `--volumes volume-three` run
+      // legitimately holds a C2D2 that is not this one, and a red there would be a slice artefact
+      // rather than a defect. The gate cannot mask a real loss — a volume-one build that dropped
+      // this clause still leaves the directory standing with every other clause in it.
+      if (!fs.existsSync(`corpus/${ed}/volume-one`)) {
+        probe.skip(`corpus/${ed}/volume-one is not built — the worked example lives there`);
+      } else {
+        assert.ok(hits.some(f => identity.get(f) === 'volume-one|aus'),
+          `${ed}: no national Volume One file for ${PROBE} — the design doc's worked example resolves to ${hits.map(f => identity.get(f)).join(', ') || 'nothing'}`);
       }
     });
   });
