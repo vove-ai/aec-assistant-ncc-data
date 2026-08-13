@@ -6,18 +6,24 @@
 // a glossary cross-reference splits a sentence in the source XML, so an exact phrase typed by a
 // human finds nothing. If #2 fails, the fix belongs in normalize.mjs. NEVER in this file.
 //
-// Same for #4: a clause that cites "see Figure X" must carry that figure's link in its own file,
-// or an agent has to go chasing it. When it fails, the fix is the figure's alt text in
-// normalize.mjs — the test states the promise and does not bend.
+// #4 is the one promise that had to be REPHRASED rather than defended. Its first form — "a citing
+// file carries every figure it cites" — is false of the NCC itself: measured over the full 2025
+// corpus, 17 of 131 references are genuine cross-file references in the published source. A test
+// demanding what the source does not do gets "fixed" by mangling the normalizer, which is the
+// opposite of what it is for. What it asserts now is that a cited figure is reachable in ONE grep;
+// see the test for the three cases and which of them can blame the normalizer.
 //
-// Slice tolerance: the corpus is built up over several tasks (2025 pilot, 2022 pilot, then the
-// bulk runs), so each edition's tests register only once `corpus/{edition}/` exists. An absent
-// corpus reports as ONE skipped test rather than as silence — a suite that says nothing about a
-// missing corpus looks identical to a suite that passed.
+// Slice tolerance, at two levels. The corpus is built up over several tasks (2025 pilot, 2022
+// pilot, then the bulk runs), so (a) each edition's tests register only once `corpus/{edition}/`
+// exists, and (b) any assertion that reasons about the corpus AS A WHOLE — only #4 does — runs
+// only when that edition's corpus is complete. Both report as a SKIP, never as a silent pass:
+// Task 11 puts this output in front of the owner as a format gate, and a `pass` count that
+// overstates coverage is exactly what that gate must not do.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
+import { DOCUMENTS_2025 } from '../src/read-2025.mjs';
 
 const editions = ['2022', '2025'].filter(e => fs.existsSync(`corpus/${e}`));
 const files = ed => walk(`corpus/${ed}`).filter(f => f.endsWith('.md') && !f.endsWith('INDEX.md'));
@@ -27,6 +33,29 @@ function walk(d) {
 }
 const read = f => fs.readFileSync(f, 'utf8');
 
+/**
+ * The documents each edition is made of. Task 10 adds
+ * `['2022', DOCUMENTS_2022.map(d => d.key)]` alongside its reader.
+ */
+const EDITION_DOCUMENTS = new Map([['2025', DOCUMENTS_2025.map(d => d.key)]]);
+
+/**
+ * Which of an edition's documents are absent from `corpus/{edition}`.
+ *
+ * Completeness is derived STRUCTURALLY — the document directories that exist — rather than from a
+ * flag a build could set wrongly, and it is what gates #4's corpus-wide arm: a figure cited by a
+ * built document may live in one that was not built, and that is an absent document, not a defect.
+ */
+function missingDocuments(ed) {
+  const known = EDITION_DOCUMENTS.get(ed);
+  // A loud seam rather than a silent weakening: without an entry, completeness can never be
+  // established and #4's corpus-wide arm would skip forever on a corpus that is in fact complete.
+  assert.ok(known, `${ed}: add its document list to EDITION_DOCUMENTS alongside its reader, or #4 can never check a complete corpus`);
+  const present = new Set(fs.readdirSync(`corpus/${ed}`, { withFileTypes: true })
+    .filter(e => e.isDirectory()).map(e => e.name));
+  return known.filter(k => !present.has(k)).sort(byCodepoint);
+}
+
 /** Codepoint sort. Never localeCompare — locale-dependent order is not reproducible. */
 const byCodepoint = (a, b) => (a < b ? -1 : a > b ? 1 : 0);
 
@@ -35,12 +64,13 @@ const byCodepoint = (a, b) => (a < b ? -1 : a > b ? 1 : 0);
  * the first lines rather than an import from emit.mjs: this suite is the corpus's second opinion,
  * so it must not share code with the thing that produced it.
  */
-function clauseOf(content) {
-  const m = /^clause: (.*)$/m.exec(content.split('\n---', 1)[0]);
+function fm(content, key) {
+  const m = new RegExp(`^${key}: (.*)$`, 'm').exec(content.split('\n---', 1)[0]);
   if (!m) return null;
   const v = m[1].trim();
   return v.startsWith('"') ? JSON.parse(v) : v;
 }
+const clauseOf = content => fm(content, 'clause');
 
 /**
  * An independent reimplementation of emit.mjs's clause-id → filename-token rule (lowercase, fold
@@ -101,10 +131,13 @@ for (const ed of editions) {
     //   * a file whose frontmatter names the clause but which the glob misses = a lost variation
     const byLead = new Map();     // leading filename token -> files
     const byClause = new Map();   // frontmatter clause id  -> files
+    const identity = new Map();   // file -> "{volume}|{jurisdiction}"
     for (const f of files(ed)) {
       const lead = path.basename(f).replace(/\.md$/, '').split('-')[0];
       byLead.set(lead, [...(byLead.get(lead) ?? []), f]);
-      const id = clauseOf(read(f));
+      const c = read(f);
+      identity.set(f, `${fm(c, 'volume')}|${fm(c, 'jurisdiction')}`);
+      const id = clauseOf(c);
       if (id) byClause.set(id, [...(byClause.get(id) ?? []), f]);
     }
     assert.ok(byClause.size > 0, `${ed}: no clause files at all — nothing to glob`);
@@ -116,6 +149,12 @@ for (const ed of editions) {
         byClause.get(id).sort(byCodepoint),
         `${ed}: glob ${tok}-* does not equal the files whose clause: is ${id}`,
       );
+      // …and every file the glob returns is distinguishable from its siblings, since a clause
+      // designation is unique only within a volume (measured: 165 designations are published in
+      // more than one 2025 volume, and none has two files for one volume+jurisdiction).
+      const identities = byClause.get(id).map(f => identity.get(f));
+      assert.equal(new Set(identities).size, identities.length,
+        `${ed}: two files for clause ${id} share a volume and jurisdiction, so a glob hit cannot be resolved: ${byClause.get(id).join(', ')}`);
     }
 
     // The documented worked example is a SUBTEST so that a slice which does not contain it skips
@@ -127,7 +166,16 @@ for (const ed of editions) {
       assert.ok(hits.length >= 1);
       for (const f of hits) {
         assert.ok(path.basename(f).startsWith(`${idToken(PROBE)}-`), `${f}: not named for ${PROBE}`);
-        assert.ok(f.includes('volume-one'), `${f}: ${PROBE} is a Volume One clause`);
+      }
+      // A clause designation is unique only WITHIN a volume: every volume has its own Sections
+      // A-J, so NCC 2025 publishes C2D2 twice — "Type of construction required" in Volume One and
+      // "Invert levels" in Volume Three. Measured: 165 designations appear in more than one
+      // volume. So the glob legitimately returns several files, and the promise is not that it
+      // returns one — it is that every file it returns is DISTINGUISHED by its own frontmatter.
+      const seen = new Set();
+      for (const f of hits) {
+        assert.ok(!seen.has(identity.get(f)), `${f}: a second ${PROBE} file for ${identity.get(f)} — the glob hits cannot be told apart`);
+        seen.add(identity.get(f));
       }
     });
   });
@@ -145,7 +193,7 @@ for (const ed of editions) {
     assert.ok(files(ed).some(f => read(f).includes('AS 1530.4')));
   });
 
-  test(`[${ed}] #4 a cited figure is always reachable in one grep`, (t) => {
+  test(`[${ed}] #4 a cited figure is always reachable in one grep`, async (t) => {
     // The promise an agent depends on: it never has to hunt for a figure. Two ways to keep it,
     // and the corpus must do one of them for EVERY reference:
     //   * the citing file embeds the figure itself — normalize.mjs writes the designation into
@@ -170,24 +218,42 @@ for (const ed of editions) {
         embedders.get(k).add(f);
       }
     }
-    let refs = 0;
-    for (const [f, c] of contents) {
-      for (const m of c.matchAll(FIGURE_REF)) {
-        refs++;
-        const k = figKey(m[1]);
-        const who = embedders.get(k) ?? new Set();
-        if (who.has(f)) continue;
-        assert.ok(who.size > 0,
-          `${f}: cites Figure ${m[1]}, which NO file in corpus/${ed} embeds — the normalizer dropped the figure`);
-        assert.equal(who.size, 1,
-          `${f}: cites Figure ${m[1]}, embedded by ${who.size} files, so one grep does not reach it — ${[...who].join(', ')}`);
-      }
+    const references = [];
+    for (const [f, c] of contents) for (const m of c.matchAll(FIGURE_REF)) references.push({ f, cited: m[1], key: figKey(m[1]) });
+
+    // A slice with no reference at all exercises nothing here, and a silent pass is
+    // indistinguishable from a real one. (Measured: Sections A+C of Volume One hold 10 figures and
+    // ZERO `see Figure` references — the pilot slice is exactly this case; the full corpus has 131.)
+    if (!references.length) return t.skip(`no figure references in corpus/${ed} — this slice does not exercise #4`);
+
+    // Always valid, on any slice: a reference resolved by a built file must resolve to ONE built
+    // file. A partial corpus can only ever hold a SUBSET of the embedders, so this arm cannot
+    // produce a false positive when documents are missing.
+    for (const { f, cited, key } of references) {
+      const who = embedders.get(key) ?? new Set();
+      if (who.size === 0 || who.has(f)) continue;
+      assert.equal(who.size, 1,
+        `${f}: cites Figure ${cited}, embedded by ${who.size} files, so one grep does not reach it — ${[...who].join(', ')}`);
     }
-    // Say so out loud when a slice contains no reference at all: this test then asserted nothing,
-    // and a silent pass is indistinguishable from a real one. (Measured: Sections A+C of Volume
-    // One contain 10 figures and zero `see Figure` references, so the pilot slice is exactly this
-    // case; the full corpus has 131.)
-    if (!refs) t.diagnostic(`no figure references in corpus/${ed} — this slice does not exercise #4`);
+
+    // Only valid on a COMPLETE corpus. A built document may cite a figure that lives in one this
+    // run did not build — the glossary does it on every per-volume run, because every volume emits
+    // the glossary and some of its entries cite Housing Provisions figures. Asserting here on a
+    // partial corpus would report a missing document as a dropped figure, blaming the normalizer
+    // for something it did not do.
+    await t.test('no cited figure is missing from the corpus', (sub) => {
+      const missing = missingDocuments(ed);
+      if (missing.length) {
+        return sub.skip(`corpus/${ed} is partial — ${missing.join(', ')} not built; a cited figure may live in one of them`);
+      }
+      for (const { f, cited, key } of references) {
+        const who = embedders.get(key) ?? new Set();
+        assert.ok(who.size > 0,
+          `${f}: cites Figure ${cited}, which no file in the complete corpus/${ed} embeds. Two possibilities, `
+          + 'both real: normalize.mjs dropped the figure, or the unit carrying it was never emitted. '
+          + 'Check the source XML for its <image-reference> before changing either.');
+      }
+    });
   });
 
   test(`[${ed}] #5 grep -A window self-citing: citation+web_url in first 6 lines`, () => {

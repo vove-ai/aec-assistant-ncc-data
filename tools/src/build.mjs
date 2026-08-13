@@ -8,17 +8,26 @@
 //  1. GLOBAL FILENAME UNIQUENESS (⊕ trap 4). Two separate identity bugs in a prior implementation
 //     surfaced as SILENT OVERWRITES — last-write-wins, no warning, a state-specific clause lost
 //     under the national filename. A uniqueness check turns that whole defect class from data
-//     loss into a build failure. The policy has three branches and they are not interchangeable;
-//     see resolveUniqueness.
+//     loss into a build failure. The policy's branches are not interchangeable; see
+//     resolveUniqueness.
 //  2. NO CLAUSE MAY SHIP WITHOUT A web_url. `web_url:` is in the first six lines so an agent can
 //     verify a citation. weblinks.mjs is written to fail CLOSED — where the data does not
 //     identify one page it answers null rather than a plausible wrong page — and this assertion
 //     is the control that turns those nulls into a human ruling instead of a quiet omission.
-//  3. ANY NORMALIZE ERROR STOPS THE BUILD, naming the unit. Silently dropping content from a
+//  3. PARITY MUST RECONCILE. Content units by immediate parent, summed with the table-references
+//     rendered inline, must equal docs/content-model-2025.md's measured table exactly. A delta is
+//     units lost between the XML and the corpus, so it FAILS the build rather than printing a
+//     warning into a scrollback nobody reads. Whole documents only — a slice has nothing to
+//     compare against. See parityCheck.
+//  4. ANY NORMALIZE ERROR STOPS THE BUILD, naming the unit. Silently dropping content from a
 //     compliance corpus is the worst outcome available here.
-//  4. NOTHING IS WRITTEN UNTIL ALL THREE PASS. Every document is read, normalized and emitted
-//     into memory first, so a failing build leaves the previous corpus intact rather than a
-//     half-rewritten one.
+//
+// NOTHING IS WRITTEN UNTIL ALL FOUR PASS. Every document is read, normalized and emitted into
+// memory first, so a failing build leaves the previous corpus intact rather than half-rewritten.
+// The first three are GATHERED and reported together, and the whole report — parity census
+// included — prints BEFORE the throw: one run yields one ruling, with the evidence needed to make
+// it. A normalize error is the exception and throws immediately, because there are no meaningful
+// statistics to report after one.
 //
 // DELETION IS PART OF CORRECTNESS, not housekeeping. A file left behind by an earlier slice or an
 // earlier naming rule is invisible to every test in this repo — nothing walks the corpus looking
