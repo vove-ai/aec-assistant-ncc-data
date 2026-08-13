@@ -1,0 +1,16 @@
+{
+  "release": "ncc-2026-07",
+  "baseUrl": "https://github.com/vove-ai/alvar-ncc-data/releases/download/ncc-2026-07/",
+  "assets": {
+    "ncc-2022-volume-one.zip": "15735c77abac5ea1f73b52987a747aa4071ad5c81053bb6947ac163f12e63d2e",
+    "ncc-2022-volume-two.zip": "a48e5fc3221c289dbce7aa3440e653e033e24d985a9b24315710dd3adfba7b1d",
+    "ncc-2022-volume-three.zip": "6210b426547cea9364448d7cac6f563a69107a43db03de8984fb52ff334c1541",
+    "ncc-2022-housing-provisions.zip": "89edfd63123c87163d28232108e20a33a22fb18f97ebab2471821e88d1dfd357",
+    "ncc-2025-volume-one-v1.2.zip": "fbeca8078d2bfdc28142d10b4092a36f90516da983e0e12b37b041abc08c5bc1",
+    "ncc-2025-volume-two-v1.2.zip": "3260b5b5c9a0f548a296f9cb512c1a4103e0b74724c273f88b315f42adb93bb4",
+    "ncc-2025-volume-three-v1.2.zip": "7c9c0d59af9b4dfc37c11a6578a5475908260ba2c4de4a5c240d173e0b881112",
+    "ncc-2025-housing-provisions-v1.2.zip": "7634dbba51404d2ac530f74cbffcba0a119e1c84ed29ec0c161931031028b643",
+    "ncc-2025-livable-housing-design-v1.2.zip": "13cfcb8200539f991525e740dfb167455a05443431ddc324d45545946bd9801f",
+    "ncc-2025-schema-v1.2.zip": "321e99182603fcd94dffa35993e674c562358f61f58296789904f6ebf01804f2"
+  }
+}
