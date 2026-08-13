@@ -1,0 +1,16 @@
+---
+clause: A7G2
+title: Alterations in a united building
+citation: NCC 2025 V1 A7G2
+web_url: https://ncc.abcb.gov.au/editions/ncc-2025/adopted/volume-one/a-governing-requirements/part-a7-united-buildings#A7G2
+edition: "2025"
+volume: volume-one
+jurisdiction: aus
+building_classes: Class 1a,Class 1b
+defined_terms:
+  - alterations
+---
+
+# A7G2 — Alterations in a united building
+
+If, after alterations or any other building work, two or more of the buildings in A7G1 cease to be connected through openings in the dividing walls, each of those buildings not now connected must comply with all the requirements for a single building.
