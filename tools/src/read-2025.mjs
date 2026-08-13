@@ -195,6 +195,11 @@ export function readDocument2025(xmlString, doc, { sections = null } = {}) {
     push({
       edition: '2025', volume: doc.key, kind: 'glossary',
       id: null, term, title: term,
+      // Which Schedule 1 sub-page defines this term — `glossary`, `abbreviation` or `symbols`.
+      // Measured: every glossentry AND glossentry-variation carries one (556/556 in volume-one).
+      // Task 6 routes web_url on it, because Schedule 1's own page is a three-link index that
+      // holds no terms at all; a reader sent there would not find the term it cites.
+      category: attr(el, 'category'),
       state: attr(el, 'state') ?? ctx.state ?? null,
       supersedes: null, buildingClasses: null,
       ...pickCtx(ctx), node: el,

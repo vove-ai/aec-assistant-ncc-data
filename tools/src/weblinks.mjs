@@ -29,8 +29,42 @@
 //           section A's own page. Indexing only `part-`-prefixed slugs would drop every
 //           specification and every state variation (454 of 665 URLs, measured).
 
+/**
+ * A link index: `Map<key, url>` as the brief specifies, plus three fields resolution needs.
+ *
+ * They are REAL FIELDS on a Map subclass rather than properties bolted onto a plain Map because
+ * losing them does not degrade safely. `collisions` and `byVolumeLead` would merely stop
+ * resolving, but `edition` short-circuits its own guard: `unit.edition && index.edition && …` is
+ * *no guard at all* when the property is absent, and since both editions publish identical slugs,
+ * a rebuilt 2022 index would answer every 2025 unit with a 2022 URL that resolves and looks
+ * right. `new Map(index)`, `structuredClone`, or a JSON round trip all produce that. So
+ * `resolveWebUrl` refuses anything that is not a LinkIndex, and a clone resolves NOTHING —
+ * failing Task 7's clause assertion loudly instead of shipping 4770 plausible wrong citations.
+ */
+export class LinkIndex extends Map {
+  constructor(entries = [], { collisions = new Map(), byVolumeLead = new Map(), edition = null } = {}) {
+    super(entries);
+    this.collisions = collisions;
+    this.byVolumeLead = byVolumeLead;
+    this.edition = edition;
+  }
+}
+
 /** The corpus jurisdiction vocabulary — the same eight values `jurisdiction:` can take. */
 const JURISDICTIONS = new Set(['act', 'nsw', 'nt', 'qld', 'sa', 'tas', 'vic', 'wa']);
+
+/**
+ * `glossentry@category` -> the Schedule 1 sub-page that actually defines the term. Measured
+ * 2026-08-14, volume-one: 421 glossary, 68 abbreviation, 67 symbols — 556, i.e. every entry
+ * carries one. An unlisted category resolves to null rather than guessing a page.
+ */
+// A Map, not an object literal: `category` is source data, and `GLOSSARY_PAGES['constructor']`
+// on a literal returns a truthy inherited value rather than "unknown category".
+const GLOSSARY_PAGES = new Map([
+  ['glossary', 'glossary'],
+  ['abbreviation', 'abbreviations'],
+  ['symbols', 'symbols'],
+]);
 
 /**
  * Jurisdiction schedule section slugs, so a state can be recovered when the container slug does
@@ -105,18 +139,19 @@ function numTok(num) {
  * Index a crawled URL list.
  *
  * @param {string[]} urls  one edition's crawl output
- * @returns {Map<string, string>} key -> url, carrying two extra documented properties:
- *   `.collisions`  Map<key, url[]>  keys claimed by more than one URL. They are deliberately
- *                  absent from the Map itself: picking one by insertion order would make the
- *                  corpus depend on crawl order and could emit a wrong citation silently.
- *                  resolveWebUrl consults these only with title evidence to decide between them.
+ * @returns {LinkIndex} key -> url, plus three fields:
+ *   `.collisions`   Map<key, url[]>  keys claimed by more than one URL. They are deliberately
+ *                   absent from the Map itself: picking one by insertion order would make the
+ *                   corpus depend on crawl order and could emit a wrong citation silently.
+ *                   resolveWebUrl consults these only with title evidence to decide between them.
  *   `.byVolumeLead` Map<'{volume}|{lead}', url[]>  national container pages, for a document
- *                  whose single section carries no num (Livable Housing Design).
+ *                   whose single section carries no num (Livable Housing Design).
+ *   `.edition`      the one edition this index may answer for.
  * @throws if a URL is not an adopted-edition page, or if the list mixes editions — both mean a
  *   caller bug, and an index built from a mixed list would answer with the wrong edition's URL.
  */
 export function buildLinkIndex(urls) {
-  const index = new Map();
+  const entries = new Map();
   const collisions = new Map();
   const byVolumeLead = new Map();
   const seen = new Map();       // key -> Set<url>
@@ -176,15 +211,12 @@ export function buildLinkIndex(urls) {
   for (const [key, ranked] of seen) {
     const best = Math.min(...ranked.values());
     const winners = [...ranked].filter(([, r]) => r === best).map(([url]) => url).sort(byCodepoint);
-    if (winners.length === 1) index.set(key, winners[0]);
+    if (winners.length === 1) entries.set(key, winners[0]);
     else collisions.set(key, winners);
   }
   for (const list of byVolumeLead.values()) list.sort(byCodepoint);
 
-  index.collisions = collisions;
-  index.byVolumeLead = byVolumeLead;
-  index.edition = [...editions][0] ?? null;
-  return index;
+  return new LinkIndex(entries, { collisions, byVolumeLead, edition: [...editions][0] ?? null });
 }
 
 /**
@@ -197,7 +229,8 @@ export function buildLinkIndex(urls) {
  * @returns {string|null}
  */
 export function resolveWebUrl(unit, index) {
-  if (!unit || typeof unit !== 'object' || !index || typeof index.get !== 'function') return null;
+  // A plain Map is refused rather than half-trusted — see the LinkIndex class comment.
+  if (!unit || typeof unit !== 'object' || !(index instanceof LinkIndex)) return null;
 
   const volume = typeof unit.volume === 'string' ? unit.volume : '';
   if (!volume) return null;
@@ -212,19 +245,32 @@ export function resolveWebUrl(unit, index) {
     ? numTok(unit.containerNum)
     : '';
 
-  // No container: the unit belongs to the section page itself. This is the primary path for
-  // glossary entries (Schedule 1 Definitions), not a fallback.
+  // Glossary terms are NOT on their section page. Schedule 1 Definitions is a three-link table
+  // of contents (60 KB, no terms); the terms live one level down, split across `glossary`,
+  // `abbreviations` and `symbols`. Every glossentry carries the `category` attribute that says
+  // which — so route on it, and resolve to nothing when it is absent or unknown rather than
+  // citing an index page that does not contain the term. Jurisdiction schedules publish no
+  // glossary page of their own, so a state variation stays on the national term page.
+  if (unit.kind === 'glossary') {
+    const page = GLOSSARY_PAGES.get(unit.category);
+    return page ? lookup(index, `${volume}|${sectionTok}|${page}`, titleWords(unit.title)) : null;
+  }
+
+  // No container: the unit belongs to the section page itself.
   if (!lead) return lookup(index, `${volume}|${sectionTok}|`, titleWords(unit.title));
 
   const containerTitle = titleWords(unit.containerTitle);
   const state = tok(unit.state);
 
-  // A state-varied unit prefers its jurisdiction page: measured, the national Part page does NOT
-  // carry the variation's text, only a link to it and a client-side state filter.
+  // A state-varied unit resolves to its jurisdiction page or to NOTHING. Measured: the national
+  // Part page does not carry the variation's text, only a link to it and a client-side state
+  // filter — so returning it is the same wrong-citation class the section-page fallback below is
+  // refused for, made worse by the clause fragment that would make it look precise. It is also
+  // the one that ESCAPES review: Task 7 fails the build on a null clause web_url, so a null gets
+  // a human ruling while a national-page fallback passes the gate silently.
   if (state && JURISDICTIONS.has(state)) {
-    const hit = lookup(index, `${volume}|state:${state}|${lead}`, containerTitle);
     // Jurisdiction pages carry no clause anchors (measured), so no fragment here.
-    if (hit) return hit;
+    return lookup(index, `${volume}|state:${state}|${lead}`, containerTitle);
   }
 
   if (sectionTok) {

@@ -121,8 +121,16 @@ export async function crawlEdition(edition, {
       const d = depthOf(href);
       if (d > maxDepth) continue;
       found.add(href);
-      // A page at the frontier depth is recorded but never expanded: its own children would be
-      // deeper than maxDepth, so fetching it cannot add an in-scope URL.
+      // A page at the frontier depth is recorded but never expanded. This is a real trade, not a
+      // free one: the site is a GRAPH, so a depth-3 page can link SIDEWAYS to another depth-3
+      // page that no depth-2 page mentions, and such a URL would be missed. Expanding the
+      // frontier costs ~2,000 requests and ~450 MB against ~83 requests, so it was measured
+      // instead: a deterministic 5% sample (29 of 562) of 2025's frontier pages yielded 0 links
+      // the crawl had not already found. By the rule of three that bounds the miss rate at
+      // roughly 10% with 95% confidence — it does not establish zero. What makes the trade
+      // acceptable is the failure mode, not the sample: a missed page leaves its units with a
+      // null web_url, and Task 7 fails the build on any clause with a null web_url. The loss is
+      // loud. Run with `--max-depth 4` to expand the frontier if that ever fires.
       if (d < maxDepth && !visited.has(href)) queue.push(href);
     }
 

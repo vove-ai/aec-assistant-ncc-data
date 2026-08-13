@@ -7,7 +7,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
-import { buildLinkIndex, resolveWebUrl } from '../src/weblinks.mjs';
+import { buildLinkIndex, resolveWebUrl, LinkIndex } from '../src/weblinks.mjs';
 
 const B = 'https://ncc.abcb.gov.au/editions/ncc-2025/adopted';
 
@@ -120,11 +120,17 @@ test('a state-varied clause resolves to the STATE page, not the national one', (
   assert.equal(resolveWebUrl({ ...unit, state: null }, idx), nat);
 });
 
-test('a state-varied clause with no state page falls back to the national container page', () => {
+test('a state-varied clause with no state page resolves to NULL, not the national page', () => {
+  // The national Part page does not carry the variation's text (measured). Returning it would be
+  // a wrong citation that also LOOKS precise once a clause fragment is appended — and, worse, it
+  // passes Task 7's "no clause may have a null web_url" gate, disarming the one control that
+  // would surface the problem. A null gets a human ruling; a plausible URL gets shipped.
   const nat = `${B}/volume-one/a-governing-requirements/part-a5-documentation-design-and-construction`;
   const idx = buildLinkIndex([nat]);
-  const got = resolveWebUrl({ volume: 'volume-one', sectionNum: 'A', containerKind: 'part', containerNum: 'A5', state: 'VIC' }, idx);
-  assert.equal(got, nat);
+  const unit = { volume: 'volume-one', sectionNum: 'A', containerKind: 'part', containerNum: 'A5', kind: 'clause', id: 'A5G4' };
+  assert.equal(resolveWebUrl({ ...unit, state: 'VIC' }, idx), null);
+  // The same page still answers the national unit — the strictness is about the state, not the key.
+  assert.equal(resolveWebUrl(unit, idx), `${nat}#A5G4`);
 });
 
 test('a jurisdiction page never answers for a different state', () => {
@@ -179,10 +185,59 @@ test('no fragment on a jurisdiction page — measured: it carries no clause anch
  * ------------------------------------------------------------------------ */
 
 test('a unit with no container resolves to its section page', () => {
-  const sec = `${B}/volume-one/1-definitions`;
-  const idx = buildLinkIndex([sec, `${B}/volume-one/1-definitions/glossary`]);
-  const got = resolveWebUrl({ volume: 'volume-one', sectionNum: '1', sectionType: 'schedule', kind: 'glossary', term: 'Fire source feature', containerNum: null }, idx);
+  const sec = `${B}/volume-one/preface`;
+  const idx = buildLinkIndex([sec]);
+  const got = resolveWebUrl({ volume: 'volume-one', sectionNum: 'preface', kind: 'page', title: 'Preface', containerNum: null }, idx);
   assert.equal(got, sec);
+});
+
+/* ---------------------------------------------------------------------------
+ * Glossary. Schedule 1 Definitions is a three-link table of contents; the terms
+ * live one level down, split across three pages. Measured 2026-08-14 on
+ * volume-one: /1-definitions is 60 KB and does NOT contain "Alpine area";
+ * /1-definitions/glossary is 464 KB and does. Abbreviations and symbols are
+ * likewise only on their own pages. Every glossentry carries a `category`
+ * attribute naming which one (volume-one: glossary 421, abbreviation 68,
+ * symbols 67 — 556, i.e. all of them).
+ * ------------------------------------------------------------------------ */
+
+const DEFS = `${B}/volume-one/1-definitions`;
+const DEF_URLS = [DEFS, `${DEFS}/glossary`, `${DEFS}/abbreviations`, `${DEFS}/symbols`];
+const glossaryUnit = extra => ({
+  volume: 'volume-one', sectionNum: '1', sectionType: 'schedule', kind: 'glossary',
+  containerNum: null, term: 'Alpine area', title: 'Alpine area', ...extra,
+});
+
+test('a glossary term resolves to the page that contains it, not the section index', () => {
+  const idx = buildLinkIndex(DEF_URLS);
+  assert.equal(resolveWebUrl(glossaryUnit({ category: 'glossary' }), idx), `${DEFS}/glossary`);
+});
+
+test('abbreviations and symbols route to their OWN pages, not to the glossary', () => {
+  const idx = buildLinkIndex(DEF_URLS);
+  assert.equal(resolveWebUrl(glossaryUnit({ category: 'abbreviation', term: 'ABCB' }), idx), `${DEFS}/abbreviations`);
+  assert.equal(resolveWebUrl(glossaryUnit({ category: 'symbols', term: 'kPa' }), idx), `${DEFS}/symbols`);
+});
+
+test('a glossary unit with no category resolves to NULL — the section page does not hold the term', () => {
+  const idx = buildLinkIndex(DEF_URLS);
+  assert.equal(resolveWebUrl(glossaryUnit({}), idx), null);
+  assert.equal(resolveWebUrl(glossaryUnit({ category: 'something-new' }), idx), null);
+  // `category` is source data, so the category->page table must not answer for inherited keys.
+  for (const junk of ['constructor', '__proto__', 'toString', 'hasOwnProperty']) {
+    assert.equal(resolveWebUrl(glossaryUnit({ category: junk }), idx), null, junk);
+  }
+});
+
+test('a glossary unit whose own page is missing resolves to NULL, not to the section index', () => {
+  const idx = buildLinkIndex([DEFS, `${DEFS}/abbreviations`]);
+  assert.equal(resolveWebUrl(glossaryUnit({ category: 'glossary' }), idx), null);
+  assert.equal(resolveWebUrl(glossaryUnit({ category: 'abbreviation' }), idx), `${DEFS}/abbreviations`);
+});
+
+test('a glossary state variation stays on the term page — jurisdiction has no glossary page', () => {
+  const idx = buildLinkIndex([...DEF_URLS, `${B}/volume-one/5-new-south-wales`]);
+  assert.equal(resolveWebUrl(glossaryUnit({ category: 'glossary', state: 'NSW' }), idx), `${DEFS}/glossary`);
 });
 
 test('a unit WITH a container whose page is missing does NOT fall back to the section page', () => {
@@ -311,6 +366,29 @@ test('slug tokens are a SUBSET of the title, not an equality — the site drops 
  * Fail-loud on caller bugs; never throw on unit data.
  * ------------------------------------------------------------------------ */
 
+test('a rebuilt plain Map cannot silently lose the guards — it resolves nothing', () => {
+  // The three extras are REAL FIELDS on a Map subclass, not ad-hoc properties, because losing
+  // `.edition` does not degrade safely: the guard is `unit.edition && index.edition && …`, so a
+  // missing property short-circuits to NO guard, and a 2022 index would answer every 2025 unit
+  // with a 2022 URL that resolves and looks right. Anything that is not a LinkIndex resolves to
+  // null, so a clone fails Task 7's clause assertion loudly instead of shipping 4770 wrong URLs.
+  const idx = buildLinkIndex([`${B}/volume-one/a-governing-requirements/part-a5-x`]);
+  const unit = { edition: '2025', volume: 'volume-one', sectionNum: 'A', containerKind: 'part', containerNum: 'A5' };
+  assert.equal(resolveWebUrl(unit, idx), `${B}/volume-one/a-governing-requirements/part-a5-x`);
+
+  assert.ok(idx instanceof Map, 'the brief specifies a Map, and LinkIndex must still be one');
+  assert.ok(idx instanceof LinkIndex);
+  for (const clone of [new Map(idx), new Map([...idx.entries()])]) {
+    assert.equal(clone.get('volume-one|a|a5'), idx.get('volume-one|a|a5'), 'the clone kept the entries…');
+    assert.equal(clone.edition, undefined, '…and silently dropped the edition guard');
+    assert.equal(resolveWebUrl(unit, clone), null, 'so it must resolve nothing at all');
+  }
+  // The fields are real, enumerable-independent properties, not attached to the entries.
+  assert.equal(idx.edition, '2025');
+  assert.ok(idx.collisions instanceof Map);
+  assert.ok(idx.byVolumeLead instanceof Map);
+});
+
 test('an index never answers for a different edition', () => {
   // Both editions publish the SAME slugs, so handing the 2022 index to 2025 units would cite a
   // 2022 page for every 2025 clause — 4770 wrong citations, all of which resolve and look right.
@@ -391,12 +469,21 @@ test('corpus: every 2025 clause unit resolves, and the rates are exactly as meas
   const byKind = new Map();
   let total = 0;
   const stateWithContainer = { schedulePage: 0, elsewhere: 0, unresolved: 0 };
+  const glossaryPage = new Map();
   let fragments = 0;
   for (const doc of DOCUMENTS_2025) {
     const xml = fs.readFileSync(path.join('.cache/extracted', doc.pkg, 'contents.xml'), 'utf8');
     for (const unit of readDocument2025(xml, doc)) {
       const got = resolveWebUrl(unit, idx);
       total++;
+      if (unit.kind === 'glossary') {
+        // Not "is it non-null" — WHICH page. The section index resolves too, and does not carry
+        // the term; scoring that as success is how 47% of the corpus got a wrong URL.
+        const want = { abbreviation: 'abbreviations', symbols: 'symbols', glossary: 'glossary' }[unit.category];
+        const landed = got === `https://ncc.abcb.gov.au/editions/ncc-2025/adopted/${unit.volume}/1-definitions/${want}`;
+        const g = glossaryPage.get(unit.category) ?? { n: 0, onItsOwnPage: 0 };
+        g.n++; if (landed) g.onItsOwnPage++; glossaryPage.set(unit.category, g);
+      }
       const d = byDoc.get(doc.key) ?? { n: 0, ok: 0 };
       d.n++; if (got) d.ok++; byDoc.set(doc.key, d);
       const k = byKind.get(unit.kind) ?? { n: 0, ok: 0 };
@@ -421,7 +508,13 @@ test('corpus: every 2025 clause unit resolves, and the rates are exactly as meas
   const clause = byKind.get('clause');
   assert.deepEqual([clause.n, clause.ok], [2312, 2312], 'clause units must reach 100%');
   const glossary = byKind.get('glossary');
-  assert.deepEqual([glossary.n, glossary.ok], [2224, 2224], 'glossary resolves to its section page');
+  assert.deepEqual([glossary.n, glossary.ok], [2224, 2224]);
+  // Every glossary unit lands on the page that actually defines it, split by category across
+  // the three Schedule 1 sub-pages — not on the 60 KB section index that lists them.
+  assert.deepEqual(
+    [...glossaryPage].map(([cat, g]) => `${cat} ${g.onItsOwnPage}/${g.n}`).sort(),
+    ['abbreviation 272/272', 'glossary 1684/1684', 'symbols 268/268'],
+  );
   const page = byKind.get('page');
   assert.deepEqual([page.n, page.ok], [234, 209], 'page units are best-effort');
 
