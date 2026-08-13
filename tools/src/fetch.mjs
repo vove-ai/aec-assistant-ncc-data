@@ -12,6 +12,30 @@ export function verifySha256(buf, expected, name) {
   if (got !== expected) throw new Error(`${name}: checksum mismatch\n  expected ${expected}\n  got      ${got}`);
 }
 
+/** True when `markerPath` exists and its content equals the asset's current expected digest. */
+export function isExtractionCurrent(markerPath, expectedSha) {
+  if (!fs.existsSync(markerPath)) return false;
+  return fs.readFileSync(markerPath, 'utf8') === expectedSha;
+}
+
+function safeEntryPath(dest, name) {
+  if (path.isAbsolute(name)) throw new Error(`zip path escape: ${name}`);
+  const p = path.join(dest, name);
+  const rel = path.relative(dest, p);
+  if (rel === '..' || rel.startsWith('..' + path.sep)) throw new Error(`zip path escape: ${name}`);
+  return p;
+}
+
+/** Extracts every entry of a zip buffer into `dest`, rejecting any entry that would escape it. */
+export function extractToDir(buf, dest) {
+  fs.mkdirSync(dest, { recursive: true });
+  for (const { name, data } of extractZip(buf)) {
+    const p = safeEntryPath(dest, name);
+    fs.mkdirSync(path.dirname(p), { recursive: true });
+    fs.writeFileSync(p, data);
+  }
+}
+
 export async function fetchAll({ cacheDir = '.cache' } = {}) {
   const zipsDir = path.join(cacheDir, 'zips');
   const extractedDir = path.join(cacheDir, 'extracted');
@@ -34,15 +58,10 @@ export async function fetchAll({ cacheDir = '.cache' } = {}) {
     const stem = asset.replace(/\.zip$/, '');
     const dest = path.join(extractedDir, stem);
     const marker = path.join(dest, '.extracted-ok');
-    if (!fs.existsSync(marker)) {
+    if (!isExtractionCurrent(marker, sha)) {
       fs.rmSync(dest, { recursive: true, force: true });
-      for (const { name, data } of extractZip(buf)) {
-        const p = path.join(dest, name);
-        if (path.relative(dest, p).startsWith('..')) throw new Error(`zip path escape: ${name}`);
-        fs.mkdirSync(path.dirname(p), { recursive: true });
-        fs.writeFileSync(p, data);
-      }
-      fs.writeFileSync(marker, CHECKSUMS.release);
+      extractToDir(buf, dest);
+      fs.writeFileSync(marker, sha);
     }
     result.set(stem, dest);
     console.log(`ok ${asset}`);
