@@ -216,9 +216,14 @@ export function readDocument2025(xmlString, doc, { sections = null } = {}) {
 
   // A container's own prose gets its own file, keyed by container + state. Without it, the
   // state-specific overview of a Part is written onto the national Part's filename and lost.
+  //
+  // `overview: true` is the discriminator downstream MUST branch on (R19). An overview unit is
+  // kind:'page' with `node` set to a *container*, so applying the generic body rule (children
+  // minus BODY_SKIP_TAGS) to it would duplicate every clause in the Part into the overview file —
+  // BODY_SKIP_TAGS deliberately omits `subtopic`. Task 4 uses overviewChildren(node) instead.
   function emitOverview(el, ctx) {
     push({
-      edition: '2025', volume: doc.key, kind: 'page',
+      edition: '2025', volume: doc.key, kind: 'page', overview: true,
       id: null, term: null,
       title: ctx.containerTitle ?? '',
       state: ctx.state ?? null,

@@ -141,6 +141,9 @@ test('a part with an intro-part emits a container-overview unit', () => {
   assert.equal(ov[0].title, 'Interpreting the NCC');
   assert.equal(ov[0].id, null);
   assert.equal(ov[0].node.nodeName, 'part');
+  // R19: the explicit flag, not the node.nodeName !== 'page' convention. Applying the generic
+  // body rule to this node would pull every clause in the Part into the overview file.
+  assert.equal(ov[0].overview, true);
   assert.deepEqual(overviewChildren(ov[0].node).map(n => n.nodeName), ['intro-part']);
 });
 
@@ -341,11 +344,13 @@ const CACHE = path('volume-one');
 const have = fs.existsSync(CACHE);
 
 const read = doc => readDocument2025(fs.readFileSync(path(doc.key), 'utf8'), doc);
+// R19: `overview` is the discriminator downstream branches on. The nodeName convention it
+// replaced is asserted alongside it below, so the two can never drift apart unnoticed.
 const tally = units => ({
   clause: units.filter(u => u.kind === 'clause').length,
   glossary: units.filter(u => u.kind === 'glossary').length,
-  page: units.filter(u => u.kind === 'page' && u.node.nodeName === 'page').length,
-  overview: units.filter(u => u.kind === 'page' && u.node.nodeName !== 'page').length,
+  page: units.filter(u => u.kind === 'page' && !u.overview).length,
+  overview: units.filter(u => u.kind === 'page' && u.overview).length,
 });
 
 // clause  = <clause> + <clause-variation> + <standard-clause> elements
@@ -366,6 +371,16 @@ for (const doc of DOCUMENTS_2025) {
     assert.deepEqual(tally(units), PARITY[doc.key]);
   });
 }
+
+test('overview is flagged explicitly, and page units are not (R19)', { skip: !have }, () => {
+  for (const doc of DOCUMENTS_2025) {
+    for (const u of read(doc)) {
+      const isOverview = u.kind === 'page' && u.node.nodeName !== 'page';
+      assert.equal(!!u.overview, isOverview, `${doc.key}: overview flag disagrees with the node shape`);
+      if (u.kind !== 'page') assert.ok(!u.overview, 'only page-kind units can be overviews');
+    }
+  }
+});
 
 test('volume-one: known units, states and containers are present', { skip: !have }, () => {
   const units = read(VOL1);
