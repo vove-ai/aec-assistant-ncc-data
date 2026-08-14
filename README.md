@@ -14,7 +14,7 @@ project's permit application lodgement date.
 | edition | dataset | amendment state |
 |---|---|---|
 | NCC 2025 | ABCB XML dataset v1.2 | as published |
-| NCC 2022 | ABCB XML packages, `ncc-2026-07` | **as first published — no amendment** |
+| NCC 2022 | ABCB XML packages, `ncc-2026-07` | **as first published, no amendment** |
 
 The NCC 2022 packages are dual-state editorial files: the NCC 2022 text carries the NCC 2025
 draft edits on top as tracked changes, so the corpus is built from the base view (insertions
