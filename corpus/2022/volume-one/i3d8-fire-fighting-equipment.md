@@ -1,0 +1,18 @@
+---
+clause: I3D8
+title: Fire fighting equipment
+citation: NCC 2022 V1 I3D8
+web_url: https://ncc.abcb.gov.au/editions/ncc-2022/adopted/volume-one/i-special-use-buildings/part-i3-farm-buildings-and-farm-sheds#I3D8
+edition: "2022"
+volume: volume-one
+jurisdiction: aus
+supersedes: "2019: H3.8"
+building_classes_excluded: Class 1a, Class 1b, Class 2, Class 3, Class 4, Class 5, Class 6, Class 9a, Class 9b, Class 9c, Class 10a, Class 10b, Class 10c
+defined_terms:
+  - Deemed-to-Satisfy Provisions
+  - farm shed
+---
+
+# I3D8 — Fire fighting equipment
+
+**(1)** The Deemed-to-Satisfy Provisions of Part E1 do not apply to a farm shed.

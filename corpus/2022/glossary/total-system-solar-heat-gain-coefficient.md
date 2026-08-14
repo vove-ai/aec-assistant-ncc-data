@@ -1,0 +1,22 @@
+---
+term: Total System Solar Heat Gain Coefficient
+title: Total System Solar Heat Gain Coefficient
+citation: "NCC 2022 V1 Glossary: Total System Solar Heat Gain Coefficient"
+web_url: https://ncc.abcb.gov.au/editions/ncc-2022/adopted/volume-one/1-definitions/glossary
+edition: "2022"
+sources: [volume-one, volume-two, volume-three, housing-provisions]
+jurisdiction: aus
+defined_terms:
+  - wall-glazing construction
+  - roof light
+  - glazing
+---
+
+# Total System Solar Heat Gain Coefficient
+
+For the purposes of—
+
+(a) Volume One, the fraction of incident irradiance on a wall-glazing construction or a roof light that adds heat to a building’s space; or
+(b) Volume Two, the fraction of incident irradiance on glazing or a roof light that adds heat to a building’s space.
+
+Acronym: SHGC

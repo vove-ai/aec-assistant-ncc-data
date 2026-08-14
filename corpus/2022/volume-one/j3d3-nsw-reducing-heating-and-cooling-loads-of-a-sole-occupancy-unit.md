@@ -1,0 +1,13 @@
+---
+clause: J3D3
+title: Reducing heating and cooling loads of a sole-occupancy unit of a Class 2 building or a Class 4 part of a building using house energy rating software
+citation: NCC 2022 V1 J3D3 (NSW)
+web_url: https://ncc.abcb.gov.au/editions/ncc-2022/adopted/volume-one/5-new-south-wales/j3-elemental-provisions-sole-occupancy-unit-class-2-building-or-class-4-part-building
+edition: "2022"
+volume: volume-one
+jurisdiction: nsw
+---
+
+# J3D3 — Reducing heating and cooling loads of a sole-occupancy unit of a Class 2 building or a Class 4 part of a building using house energy rating software
+
+J3D3 does not apply in NSW.

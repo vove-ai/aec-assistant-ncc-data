@@ -1,0 +1,20 @@
+---
+clause: I4D7
+title: Fixed seating
+citation: NCC 2022 V1 I4D7 (WA)
+web_url: https://ncc.abcb.gov.au/editions/ncc-2022/adopted/volume-one/11-western-australia/i4-public-buildings
+edition: "2022"
+volume: volume-one
+jurisdiction: wa
+supersedes: "2019: WA H101.6"
+building_classes_excluded: Class 1a, Class 1b, Class 10a, Class 10b, Class 10c
+defined_terms:
+  - WA public building
+---
+
+# I4D7 — Fixed seating
+
+**(1)** Where fixed seating in a Class 9b WA public building is arranged in more than one row—
+
+(a) aisles must be provided on both sides of every row that contains more than 10 seats; and
+(b) the number of seats in a row must not exceed 42.
