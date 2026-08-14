@@ -1,4 +1,4 @@
-// acceptance.test.mjs — the six promises this corpus makes to the agent that greps it.
+// acceptance.test.mjs — the eight promises this corpus makes to the agent that greps it.
 //
 // These are not unit tests. Every other test file checks a function; these check the CORPUS —
 // the artifact a Claude Managed Agents session mounts and searches. Each one is an executable
@@ -11,11 +11,14 @@
 // corpus, 17 of 131 references are genuine cross-file references in the published source. A test
 // demanding what the source does not do gets "fixed" by mangling the normalizer, which is the
 // opposite of what it is for. What it asserts now is that a cited figure is reachable in ONE grep;
-// see the test for the three cases and which of them can blame the normalizer.
+// see the test for the three cases and which of them can blame the normalizer. #8 is its twin for
+// tables, added after the reviewer observed that #4 covers the pictures and the tables carry the
+// numbers; #7 is the invariant that the mechanism-A defect could not have survived — no label,
+// list marker or callout heading may stand over nothing.
 //
 // Slice tolerance, at two levels. The corpus is built up over several tasks (2025 pilot, 2022
 // pilot, then the bulk runs), so (a) each edition's tests register only once `corpus/{edition}/`
-// exists, and (b) any assertion that reasons about the corpus AS A WHOLE — only #4 does — runs
+// exists, and (b) any assertion that reasons about the corpus AS A WHOLE — #4 and #8 — runs
 // only when that edition's corpus is complete. Both report as a SKIP, never as a silent pass:
 // Task 11 puts this output in front of the owner as a format gate, and a `pass` count that
 // overstates coverage is exactly what that gate must not do.
@@ -162,6 +165,100 @@ for (const e of FIGURE_REF_EXCEPTIONS) {
 function figureRefException(edition, file, key) {
   const rel = String(file).split(path.sep).join('/');
   return FIGURE_REF_EXCEPTIONS.find(e => e.edition === edition && e.file === rel && e.key === key) ?? null;
+}
+
+/**
+ * A prose table citation, in the NCC's own designation shape. See #8 for why it is this and not
+ * `Table \S+`; the optional jurisdiction prefix is the same measured detail as FIGURE_REF's.
+ */
+const TABLE_REF = /\bTable ((?:ACT|NSW|NT|QLD|SA|TAS|VIC|WA) )?([A-Z]\d+[A-Z]\d+[a-z]?)\b/g;
+
+/**
+ * #8 exceptions, on the same terms as #4's: a citation the SOURCE itself cannot resolve, or one
+ * this repository has diagnosed and not yet repaired. Each states which, because the two have
+ * different futures — the first is permanent, the second is a defect with a name.
+ */
+const TABLE_REF_EXCEPTIONS = [
+  {
+    edition: '2022',
+    file: 'corpus/2022/volume-two/h1v1-structural-reliability.md',
+    key: 'h1v1a',
+    evidence:
+      'The clause cites "Table H1V1a" in untracked 2022 prose while the wrapper it points at states '
+      + '<num>H1V1</num> in the base view — the 2025 draft letters that table, and the citation was '
+      + 'not tracked with it. The corpus therefore publishes "### Table H1V1" and the Code prints '
+      + '"Table H1V1a"; the table IS in the file, one heading above. Same class as the F1D11 figure '
+      + 'reference in FIGURE_REF_EXCEPTIONS: the 2022 wording is not in the source, so no transform '
+      + 'can recover it.',
+  },
+  {
+    edition: '2022',
+    file: 'corpus/2022/volume-one/j6d10-space-heating.md',
+    key: 'j6d10',
+    evidence:
+      'A LOSS THIS REPOSITORY HAS DIAGNOSED AND NOT REPAIRED, recorded so it cannot be forgotten. '
+      + 'table-J6D10-maximum-electric-heating-capacity.xml holds NCC 2022 content in the base view '
+      + '(289 characters, one <table>, headers untracked), and J6D10(1)(e)(i)(C) cites it from a '
+      + 'delText-restored 2022 run. Its <table-reference conref> pointer is itself untracked, but it '
+      + 'sits inside a <p> the 2025 draft inserted whose only other content is inserted text — so the '
+      + 'paragraph carries no base-cycle text, R73 does not retain it, and the pointer goes with it. '
+      + 'R73\'s pointer arm reaches a pointer the mark rejects, not one whose PARENT it rejects.',
+  },
+  {
+    edition: '2025',
+    file: 'corpus/2025/volume-one/s44c2-heating-load-limit.md',
+    key: 's45c3a',
+    evidence:
+      "The ABCB's own dangling reference. NCC 2025 Volume One's contents.xml publishes "
+      + '"Specification 45 * * * * *" with the note "Specification 45, which existed in NCC 2022, has '
+      + 'been removed", and the only two occurrences of S45C3a in that document are these citations '
+      + 'of "Table S45C3a" left behind in S44C2 and S44C3. There is no Specification 45 to reach, in '
+      + 'the source or in the corpus.',
+  },
+  {
+    edition: '2025',
+    file: 'corpus/2025/volume-one/s44c3-cooling-load-limit.md',
+    key: 's45c3a',
+    evidence:
+      'The second of the two S44 citations of Table S45C3a; see the S44C2 entry. NCC 2025 Volume One '
+      + 'publishes "Specification 45 * * * * *" and the note that Specification 45 has been removed, '
+      + 'so this reference resolves nowhere in the source either.',
+  },
+  {
+    edition: '2025',
+    file: 'corpus/2025/volume-two/s44c2-heating-load-limit.md',
+    key: 's45c3a',
+    evidence:
+      "Volume Two's copy of the same S44C2 citation. Specification 45 was removed for NCC 2025 and "
+      + 'the reference to its Table S45C3a was left in place; see the Volume One S44C2 entry for the '
+      + 'source evidence.',
+  },
+  {
+    edition: '2025',
+    file: 'corpus/2025/volume-two/s44c3-cooling-load-limit.md',
+    key: 's45c3a',
+    evidence:
+      "Volume Two's copy of the same S44C3 citation. Specification 45 was removed for NCC 2025 and "
+      + 'the reference to its Table S45C3a was left in place; see the Volume One S44C2 entry for the '
+      + 'source evidence.',
+  },
+];
+
+for (const e of TABLE_REF_EXCEPTIONS) {
+  for (const k of ['edition', 'file', 'key', 'evidence']) {
+    if (typeof e[k] === 'string' && e[k].trim()) continue;
+    throw new Error(`acceptance: TABLE_REF_EXCEPTIONS entry ${JSON.stringify(e)} has no ${k}`);
+  }
+  if (e.evidence.length < 80) {
+    throw new Error(`acceptance: TABLE_REF_EXCEPTIONS entry for ${e.key} states ${e.evidence.length} characters `
+      + 'of evidence — an unreachable table needs a measurement a reader can check, not a label');
+  }
+}
+
+/** The ruling covering this unreachable table citation, or null. */
+function tableRefException(edition, file, key) {
+  const rel = String(file).split(path.sep).join('/');
+  return TABLE_REF_EXCEPTIONS.find(e => e.edition === edition && e.file === rel && e.key === key) ?? null;
 }
 
 if (!editions.length) {
@@ -353,6 +450,125 @@ for (const ed of editions) {
           + 'SOURCE names a designation this edition does not have. Check the source XML for its '
           + '<image-reference> before changing either, and rule on it in FIGURE_REF_EXCEPTIONS if the '
           + 'reference is the Code\'s own.');
+      }
+    });
+  });
+
+  test(`[${ed}] #7 no label without a requirement under it`, () => {
+    // The mechanism-A defect, as an executable invariant. A list label, a sub-clause marker or a
+    // callout label with nothing under it is a requirement the Code does not have — and, for a
+    // list, it also pushes every following item one letter down, so `F1D4(1)(b)` in the corpus was
+    // `F1D4(1)(a)` in the published Code. Measured before the fix: 9 empty list labels across 8
+    // files of corpus/2022, 12 label-only callouts, 71 blank table rows; corpus/2025 had 0 of each,
+    // which is what makes ZERO the standard here rather than a tolerance.
+    //
+    // Edition-independent on purpose: it is a property of the markdown, not of a reader.
+    const bad = [];
+    for (const f of files(ed)) {
+      const lines = read(f).split('\n');
+      // Frontmatter is `key: value`, never a label; and the closing `---` is line-indexed here so
+      // a body that happens to contain `---` cannot re-open it.
+      const start = lines[0] === '---' ? lines.indexOf('---', 1) + 1 : 0;
+      for (let i = start; i < lines.length; i++) {
+        const line = lines[i];
+        const quoted = /^>\s?/.test(line);
+        const bare = line.replace(/^>\s?/, '');
+        const indent = /^(\s*)/.exec(bare)[1].length;
+        // A label that HOSTS something — a nested list, a table, a figure — is a real shape and the
+        // Code prints it (`(c) solar radiation being—` with (i)/(ii) under it). What is never real
+        // is a label with nothing under it at all, so the test is "nothing deeper follows".
+        const hostsDeeper = () => {
+          for (let j = i + 1; j < lines.length; j++) {
+            const n = lines[j];
+            if (!n.trim() || (quoted && n === '>')) continue;
+            if (quoted !== /^>/.test(n)) return false;
+            const nb = n.replace(/^>\s?/, '');
+            return /^(\s*)/.exec(nb)[1].length > indent;
+          }
+          return false;
+        };
+        // Anything at all after it, at any indent, that is not another label or a heading. A
+        // sub-clause number labels the BLOCKS that follow it, and they are not indented under it:
+        // `**(1)**` above a top-level `(a)`/`(b)` list is how V3 B6P4 prints, and is correct.
+        const hostsAnything = () => {
+          for (let j = i + 1; j < lines.length; j++) {
+            const n = lines[j];
+            if (!n.trim() || (quoted && n === '>')) continue;
+            if (quoted !== /^>/.test(n)) return false;
+            const nb = n.replace(/^>\s?/, '').trim();
+            return !/^\*\*\([^)]*\)\*\*$/.test(nb) && !/^#{1,6} /.test(nb);
+          }
+          return false;
+        };
+        const isListLabel = /^\s*(?:\((?:[ivxlcdmIVXLCDM]+|[A-Za-z]|\d+)\)|[-*])\s*$/.test(bare);
+        const isSubclause = /^\s*\*\*\([^)]*\)\*\*\s*$/.test(bare);
+        if (isSubclause) { if (!hostsAnything()) bad.push(`${f}:${i + 1} ${JSON.stringify(line)}`); continue; }
+        // A callout label is the whole of its blockquote: `> **Info**` with no other quoted line.
+        const isLoneCalloutLabel = quoted && /^\*\*[^*].*\*\*$/.test(bare.trim())
+          && !/^>/.test(lines[i - 1] ?? '') && !/^>/.test(lines[i + 1] ?? '');
+        if (isListLabel && !hostsDeeper()) bad.push(`${f}:${i + 1} ${JSON.stringify(line)}`);
+        else if (isLoneCalloutLabel) bad.push(`${f}:${i + 1} ${JSON.stringify(line)} (callout label, no body)`);
+      }
+    }
+    assert.deepEqual(bad, [],
+      `${ed}: a label with no requirement under it. Either the source element renders nothing in this `
+      + 'edition — in which case normalize.mjs must drop the label AND not let it consume a letter — or '
+      + 'the base view discarded content it should have kept. Never fix this by relaxing the test.');
+  });
+
+  test(`[${ed}] #8 a cited table is always reachable in one grep`, async (t) => {
+    // #4's twin, for the objects that carry the numbers. Same promise and same three-way diagnosis:
+    // a cited table is either in the citing file or in exactly one other file, so one `grep -rl`
+    // lands on the provision.
+    //
+    // The reference pattern is the NCC's own designation shape (`C2V3a`, `D2D18`, `S5C11g`) and
+    // nothing looser, and that is measured rather than cautious: a bare `Table \S+` also captures
+    // `Table 3.8.1.1` (a table of AS 3740, which this corpus does not contain) and `Table shows`,
+    // 64 unresolvable designations in 2022 against 4 for this pattern. Widening it would make the
+    // test unpassable for reasons that are not defects.
+    const contents = new Map(files(ed).map(f => [f, read(f)]));
+    const embedders = new Map();
+    for (const [f, c] of contents) {
+      // `>?` because a table inside a callout is heading-rendered inside the blockquote — NCC 2025
+      // publishes `Table B1P1 (explanatory)` that way — and it is just as reachable by one grep.
+      for (const m of c.matchAll(/^>?\s*#{2,4} Table ([^\s—|]+)/gm)) {
+        const k = m[1].toLowerCase();
+        if (!embedders.has(k)) embedders.set(k, new Set());
+        embedders.get(k).add(f);
+      }
+    }
+    const references = [];
+    for (const [f, c] of contents) {
+      for (const line of c.split('\n')) {
+        if (/^>?\s*#{2,4} Table /.test(line)) continue;      // the heading is not a citation of itself
+        for (const m of line.matchAll(TABLE_REF)) references.push({ f, cited: m[2], key: m[2].toLowerCase() });
+      }
+    }
+    if (!references.length) return t.skip(`no table citations in corpus/${ed} — this slice does not exercise #8`);
+
+    for (const { f, cited, key } of references) {
+      const who = embedders.get(key) ?? new Set();
+      if (who.size === 0 || who.has(f)) continue;
+      const designations = new Set([...who].map(w => clauseOf(contents.get(w)) ?? w));
+      assert.equal(designations.size, 1,
+        `${f}: cites Table ${cited}, embedded by ${who.size} files covering ${designations.size} different `
+        + `clauses, so one grep does not reach one provision — ${[...who].join(', ')}`);
+    }
+
+    await t.test('no cited table is missing from the corpus', (sub) => {
+      const missing = missingDocuments(ed);
+      if (missing.length) {
+        return sub.skip(`corpus/${ed} is partial — ${missing.join(', ')} not built; a cited table may live in one of them`);
+      }
+      for (const { f, cited, key } of references) {
+        if ((embedders.get(key) ?? new Set()).size > 0) continue;
+        if (tableRefException(ed, f, key)) continue;
+        assert.fail(
+          `${f}: cites Table ${cited}, which no file in the complete corpus/${ed} embeds. Three possibilities, `
+          + 'all real: the base view discarded the table or the pointer that reaches it, the unit carrying '
+          + 'it was never emitted, or the SOURCE names a designation this edition does not have. Check the '
+          + '<table-reference> in the source XML — and whether its POINTER survived — before changing '
+          + 'either, and rule on it in TABLE_REF_EXCEPTIONS if the citation is the Code\'s own.');
       }
     });
   });
