@@ -17,7 +17,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import {
   EDITIONS, KNOWN_EDITIONS, NULL_WEB_URL_CLAUSES, PARITY, PARITY_UNAVAILABLE, inScope,
-  forwardRefCheck, identityUnstatedError, isWholeEdition, nullWebUrlException, parityCheck, parseArgs, planReconcile, report, resolveUniqueness,
+  forwardRefCheck, identityUnstatedError, indexWithholdingError, isWholeEdition, nullWebUrlException, parityCheck, parseArgs, planReconcile, report, resolveUniqueness,
   warningCategory, withholdPartialGlossary, withholdPartialIndexes,
 } from '../src/build.mjs';
 import { DOCUMENTS_2025, readDocument2025 } from '../src/read-2025.mjs';
@@ -593,6 +593,31 @@ test('R54: withholding FAILS CLOSED — an edition that does not state it is who
   const out = withholdPartialIndexes([{ editionKey: '2025', indexEntries: INDEXED('2025') }]);
   assert.deepEqual(out.withheld, ['2025/INDEX.md']);
   assert.equal(out.units.size, 0);
+});
+
+test('R54: an unfiltered run that withholds anything FAILS — the fail-closed branch, asserted', () => {
+  // Failing closed protects the corpus and hides a regression perfectly. Removing `wholeEdition`
+  // from buildEdition's return leaves every unit test above passing, a full build printing
+  // `index NOT WRITTEN`, and `git diff -- corpus/` clean — because the committed index is already
+  // correct, so a build that has stopped maintaining it is indistinguishable from one that has not.
+  // Found by mutation. The check holds because it derives "whole" from parseArgs instead, which is
+  // a second source: no --volumes and no --sections IS every edition this run built.
+  const NONE = { volumes: null, sections: null };
+  assert.equal(indexWithholdingError(NONE, []), null, 'an unfiltered run that withheld nothing is correct');
+  const failure = indexWithholdingError(NONE, ['2025/INDEX.md']);
+  assert.match(failure ?? '', /no --volumes and no --sections/);
+  assert.match(failure ?? '', /2025\/INDEX\.md/);
+  assert.match(failure ?? '', /wholeEdition/, 'and it names where to look, since the symptom is silence');
+
+  // A run that named its filters is not judged: spelling out every document is legitimately whole,
+  // withholdPartialIndexes writes its index, and failing here would punish the explicit spelling.
+  assert.equal(indexWithholdingError({ volumes: ['volume-two'], sections: null }, ['2025/INDEX.md']), null);
+  assert.equal(indexWithholdingError({ volumes: null, sections: ['A'] }, ['2022/INDEX.md']), null);
+
+  // …and the two halves compose: the guard's own output is what the check is handed, so an
+  // unfiltered run whose editions do not state `wholeEdition` fails rather than passing quietly.
+  const mutated = withholdPartialIndexes([{ editionKey: '2025', indexEntries: [] }]);
+  assert.notEqual(indexWithholdingError(NONE, mutated.withheld), null);
 });
 
 test('R54: the report says the index was withheld, on the same predicate that withholds it', () => {

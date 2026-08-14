@@ -747,6 +747,35 @@ export function withholdPartialIndexes(built) {
   return { units, omissions, withheld: withheld.sort(byCodepoint) };
 }
 
+/**
+ * R54's other half: an UNFILTERED run must withhold nothing.
+ *
+ * `withholdPartialIndexes` fails closed, which protects the corpus but hides a regression
+ * perfectly. Deleting `wholeEdition` from `buildEdition`'s return leaves every unit test passing,
+ * a full build printing `index NOT WRITTEN`, and `git diff -- corpus/` clean — because the
+ * committed index is already correct, so a build that has silently stopped maintaining it looks
+ * exactly like one that maintains it. Proven by mutation, which is why this exists.
+ *
+ * The check works because it derives "was this the whole edition?" from a SECOND, independent
+ * source: `parseArgs` output. A run with neither `--volumes` nor `--sections` is by definition the
+ * whole of every edition it built, whatever any downstream flag says. A run that named its filters
+ * is not judged at all — `--volumes volume-one,…` spelling out every document is legitimately whole
+ * and `withholdPartialIndexes` will write its index, so failing here would punish it.
+ *
+ * @param {{volumes: ?string[], sections: ?string[]}} opts  parseArgs output
+ * @param {string[]} withheld  withholdPartialIndexes' record
+ * @returns {?string} the failure, or null
+ */
+export function indexWithholdingError(opts, withheld) {
+  if (opts?.volumes || opts?.sections) return null;
+  if (!withheld?.length) return null;
+  return `build: this run applied no --volumes and no --sections, so it is the whole of every edition `
+    + `it built — but it withheld ${withheld.join(', ')}. The withholding guard reads wholeEdition off `
+    + 'each built edition and fails closed, so the likely cause is that wholeEdition stopped being set '
+    + 'or stopped being true. Until it is fixed, a full build no longer maintains the edition index and '
+    + 'nothing else would say so: the committed index is already correct, so the drift guard stays green.';
+}
+
 /* ============================================================================
  * Deletion — what a run owns
  * ========================================================================= */
@@ -1585,12 +1614,15 @@ export async function main(argv) {
     throw new Error(`build: ${failures.length} assertion failure(s) — see the report above. Nothing was written.`);
   }
 
-  const reports = built.map(b => report(b, applyPlan(b), opts));
   // R51: the corpus omits rather than stubs, so `{edition}/INDEX.md` is the only artifact under
   // corpus/ that can tell a browsing agent a clause is deliberately absent. The build report says
   // it too, but nothing searching the corpus ever reads a build report.
   // R54: …and a slice does not rewrite that index from the units it happened to emit.
   const indexes = withholdPartialIndexes(built);
+  const withholdingFailure = indexWithholdingError(opts, indexes.withheld);
+  if (withholdingFailure) throw new Error(withholdingFailure);
+
+  const reports = built.map(b => report(b, applyPlan(b), opts));
   for (const { relPath, content } of buildIndexes(indexes.units, { tree: corpusTree(), omissions: indexes.omissions })) {
     const file = toFsPath(relPath);
     fs.mkdirSync(path.dirname(file), { recursive: true });
