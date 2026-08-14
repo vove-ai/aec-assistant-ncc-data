@@ -90,6 +90,7 @@ never be from the edition you are not answering about.
 ```bash
 grep -rln "resistance to the incipient spread of fire to the space above" corpus/2025/
 grep -rl "AS 1530.4" corpus/2025/            # every clause citing a standard — 23 files
+                                             #   (the same grep on corpus/2022/ returns 20)
 grep -rl "### Table D2D18" corpus/2025/      # a table, by its designation — one file
 grep -rl "Figure D3D14" corpus/2025/         # a figure: the prose reference and the image's alt
                                              #   text carry the same designation, so one grep gets both
@@ -168,51 +169,58 @@ national provision. 98 files in `corpus/2025/` and 96 in `corpus/2022/` are nati
 such a block. Before relying on a national clause, check whether a variation exists for your
 jurisdiction: `ls corpus/2025/*/c2d2-*`.
 
-**And a whole Part can be disapplied by a blockquote carrying no variation marker at all.** These
-say that another edition's provisions apply instead of this one, or that a Part has not yet
-commenced. **38** of them, every one in a file that says `jurisdiction: aus` — and they are not all
-state-scoped: **16 are national**, disapplying a Part for everybody.
+**And a whole Part can be disapplied by a blockquote carrying no variation marker at all.** What
+defines this class is what the passage *does* — name a different edition, or a different
+jurisdiction's provisions, as the one that governs here, or say that a Part has not yet commenced.
+Nothing about its form is reliable: it may be labelled or bare, it may be state-scoped or national,
+and it may sit on a Part overview page or inside a clause file. They are in files that say
+`jurisdiction: aus` **and** in state files — every jurisdiction has some, so do not treat `aus` as
+the place to look.
 
 ```
 > **Notes — Tasmania Section J Energy Efficiency**
 > In Tasmania, for a Class 2 building and Class 4 part of a building, Section J is replaced
 > with Section J of BCA 2019 Amendment 1.
-                            — corpus/2022/volume-one/part-j4-building-fabric.md
+                    — corpus/2022/volume-one/part-j4-building-fabric.md   (labelled, state)
 
 > In Tasmania, Part F8 is replaced with Part F8 of BCA 2022 Volume One Amendment 2.
-                            — corpus/2025/volume-one/part-f8-condensation-management.md
+                    — corpus/2025/volume-one/part-f8-condensation-management.md   (bare, state)
+
+> For Class 2 buildings, Section J is replaced with Section J of NCC 2022 Amendment 2.
+                    — corpus/2025/volume-one/part-j1-…md   (bare, NATIONAL — no state at all)
+
+> … NSW Section J of NCC 2019 Volume One Amendment 1 applies.
+                    — corpus/2025/volume-one/part-j1-nsw-energy-efficiency.md
+                      (bare, in a `jurisdiction: nsw` file, and the verb is just "applies")
 ```
 
-**The two editions present these differently, and that is the trap.** Everything else in this
-document behaves the same way in both; this does not:
+**The verb varies and so does the form, so no single grep is the answer.** `is replaced with`,
+`may apply instead of`, `applies`, `remains in effect`, `does not take effect until` all occur —
+those are examples, not the list. NCC 2022 labels these passages; NCC 2025 mostly does not (see the
+callout table below, where the same shift is measured: 100% of 2022's labelled callouts use the six
+kind-words against 2% of 2025's). A search keyed to a label finds nearly all of NCC 2022 and almost
+none of NCC 2025; a search keyed to any one phrase misses whichever files use another.
 
-| | `corpus/2022/` | `corpus/2025/` |
-|---|---|---|
-| such blockquotes | 29, in 14 files | 9, in 8 files |
-| carrying a bold label | **29** | **3** — the other 6 are bare prose |
-| state-scoped / national | 17 / 12 | 5 / 4 |
-| on a Part overview page / on a clause file | 28 / 1 | 6 / 3 |
-
-A search keyed to a label therefore finds all of NCC 2022 and a third of NCC 2025. **Anchor on the
-words, never on the label.**
-
-None of the earlier routes reaches these. They carry no `variation (…)` marker, and
+None of the earlier routes reaches these either. They carry no `variation (…)` marker, and
 `ls corpus/2022/volume-one/part-j4-*` returns the national page and an NT one — **no Tasmanian
 file**, and no New South Wales file either, though `part-j4-building-fabric.md` carries a note for
 both. There is no `j…-tas-…` file anywhere in the corpus, so that blockquote is the only record of
 the Tasmanian position that exists here. An agent answering "Section J, Class 2 building, Tasmania"
 from the clause files alone gets it wrong with nothing to warn it.
 
-So when jurisdiction matters, **read the Part's overview page as well as the clause** — that reaches
-34 of the 38 in either edition — and grep the words, by state and by substitution phrase. Run these
-in the edition you are answering about:
+So when jurisdiction matters, **read the Part's overview page and any state file for that Part, and
+read the blockquotes on them** — most of these passages are on a Part page, and reading beats
+grepping precisely because the wording is not fixed. Use greps to widen the net, not to close it:
 
 ```bash
-ls corpus/2025/volume-one/part-j1-*                     # the Part page, alongside the clause file
-grep -rn "^> .*Tasmania" corpus/2025/volume-one/        # 4 files (2022 volume-one: 11)
-grep -rlE "^> .*(is replaced with|may apply instead of|does not take effect until)" corpus/2025/
-                                                        # 22 files — and this one also finds the
-                                                        #   national disapplications (2022: 27)
+ls corpus/2025/volume-one/part-j1-*                     # the Part page AND its state files
+grep -n "^> " corpus/2025/volume-one/part-j1-*          # read every blockquote on that Part
+grep -rn "^> .*Tasmania" corpus/2025/volume-one/        # by state: 4 files (2022 volume-one: 11)
+grep -rlE "^> .*(replaced|apply instead|applies|remains in effect|take effect)" corpus/2025/
+                                                        # by verb — a disjunction, deliberately
+                                                        #   loose: ~198 files here, 188 in 2022.
+                                                        #   A net to read, not a list of hits;
+                                                        #   widen it further if it looks thin
 ```
 
 State names appear in full and abbreviated, so grep both: `NSW` and `New South Wales` both occur.
@@ -272,6 +280,10 @@ the surrounding words.
 Q=C_dA√(2gh)                                  subscript `_`, and `√` for a square root
 D_(min)=√((4Q_(99)×(10)^3)/(πv))              superscript `^`, fraction `/`
 ```
+
+(The first is in both editions; the second only in `corpus/2025/`, because its clause —
+Volume Three `B1V1` — is one of the eight NCC 2022 omits. A formula that resolves in one edition
+and not the other is usually that, not a transcription failure: check the omission list.)
 
 Parentheses group anything longer than one character, so a subscript "min" is `_(min)`. Two
 consequences. Spaces *inside* a formula are dropped, and a formula inline in a sentence can absorb
