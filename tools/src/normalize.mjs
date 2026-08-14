@@ -635,8 +635,7 @@ function renderTable(table, st) {
     grid[r] ??= [];
     let col = 0;
     for (const cell of row.cells) {
-      const cs = spanOf(cell, 'colspan');
-      const rs = spanOf(cell, 'rowspan');
+      const { cs, rs } = spansOf(cell, row.cols, st);
       if (cs > 1 || rs > 1) irregular++;
       while (grid[r][col] !== undefined) col++;
       for (let dr = 0; dr < rs; dr++) {
@@ -676,14 +675,17 @@ function renderTable(table, st) {
 // Both table vocabularies land here. 2025 is HTML — table > thead|tbody > tr > td|th. 2022 is
 // CALS — table > tgroup > colspec|thead|tbody > row > entry — with `tgroup` transparent between
 // the table and its head/body, and `colspec` the column metadata `col`/`colgroup` are in 2025.
-function collectRows(node, rows, st, inHead) {
+function collectRows(node, rows, st, inHead, cols = null) {
   for (const c of elementChildren(node)) {
     switch (c.nodeName) {
-      case 'tgroup': collectRows(c, rows, st, inHead); break;
+      // A tgroup's colspecs are what a CALS horizontal span NAMES, and colnames are scoped to
+      // their own tgroup — so they are collected here and travel with the rows they describe,
+      // rather than being looked up from the table (where a second tgroup would overwrite them).
+      case 'tgroup': collectRows(c, rows, st, inHead, colsOf(c)); break;
       // Consumed by the `table` rule as the caption, before the grid is built. 4 corpus tables.
       case 'title': break;
-      case 'thead': collectRows(c, rows, st, true); break;
-      case 'tbody': case 'tfoot': collectRows(c, rows, st, false); break;
+      case 'thead': collectRows(c, rows, st, true, cols); break;
+      case 'tbody': case 'tfoot': collectRows(c, rows, st, false, cols); break;
       case 'tr': case 'row': {
         const cells = [];
         for (const cell of elementChildren(c)) {
@@ -691,7 +693,7 @@ function collectRows(node, rows, st, inHead) {
           cells.push(cell);
         }
         // A <tr> of <th> with no <thead> is still the header row.
-        rows.push({ cells, inHead: inHead || (!rows.length && cells.every(x => x.nodeName === 'th')) });
+        rows.push({ cells, cols, inHead: inHead || (!rows.length && cells.every(x => x.nodeName === 'th')) });
         break;
       }
       default:
@@ -701,9 +703,90 @@ function collectRows(node, rows, st, inHead) {
   }
 }
 
-function spanOf(cell, attr) {
-  const n = parseInt(cell.getAttribute(attr) ?? '1', 10);
-  return Number.isFinite(n) && n > 0 ? n : 1;
+/**
+ * `colname` -> zero-based column index, in colspec DOCUMENT ORDER.
+ *
+ * A colname is a key, not a number, and the corpus proves it: Table S1C2a's six colspecs are named
+ * 001, 002, 006, 005, 004, 003 in that order, and its header spans `namest="002" nameend="003"` —
+ * five columns by position, two if the names are read as numbers. The published table merges that
+ * header across all five FRL columns, so position is the reading that matches the Code.
+ *
+ * Measured over all four 2022 packages: 2,715 tgroups / 12,688 colspecs, every one carrying both
+ * `colname` and `colnum`; 767 tgroups have colnames out of ascending order; 8 have a `colnum`
+ * sequence that does not start at 1 (one table — 4.2.15c — replicated per package), and none of
+ * those 8 contains a span, so document order and colnum cannot disagree anywhere in this corpus.
+ */
+function colsOf(tgroup) {
+  const cols = new Map();
+  for (const c of elementChildren(tgroup)) {
+    if (c.nodeName !== 'colspec') continue;
+    const name = c.getAttribute('colname');
+    if (name) cols.set(name, cols.size);
+  }
+  return cols;
+}
+
+/**
+ * A cell's (colspan, rowspan) in EITHER table vocabulary.
+ *
+ * 2025's HTML says `colspan`/`rowspan`; 2022's CALS says `nameend`/`namest` (two colspec NAMES,
+ * so the width is a property of the tgroup, not of the cell) and `morerows` (the count of
+ * ADDITIONAL rows, so rowspan is one more). Measured in the four 2022 packages: 2,620 `morerows`
+ * and 1,337 `namest`/`nameend` pairs, no `spanspec` anywhere.
+ *
+ * Reading only the HTML spelling does not degrade — it MISPLACES. Every cell of a spanned-over row
+ * shifts one column left, so Table C3D3 publishes Type B's 33 000 m3 volume limit under Type A,
+ * with nothing in the output to show for it. Hence the throws: a span that cannot be resolved is
+ * never approximated.
+ */
+function spansOf(cell, cols, st) {
+  const num = (attr, dflt) => {
+    const raw = cell.getAttribute(attr);
+    if (raw === null || raw === undefined || raw === '') return dflt;
+    const n = Number(raw);
+    if (!Number.isInteger(n) || n < 0) {
+      throw spanFail(`<${cell.nodeName} ${attr}="${raw}"> is not a whole number of rows`, st);
+    }
+    return n;
+  };
+  const colIndex = (attr) => {
+    const name = cell.getAttribute(attr);
+    if (!name) return null;
+    const i = cols?.get(name);
+    if (i === undefined) {
+      throw spanFail(`<${cell.nodeName} ${attr}="${name}"> names no <colspec colname="${name}"> in its tgroup`, st);
+    }
+    return i;
+  };
+
+  // HTML first: the 2025 vocabulary, where both attributes are counts and are always present when
+  // a cell spans. `spanOf`'s old tolerance of junk is kept for it — an HTML colspan is a hint.
+  const html = attr => { const n = parseInt(cell.getAttribute(attr) ?? '1', 10); return Number.isFinite(n) && n > 0 ? n : 1; };
+  let cs = html('colspan');
+  let rs = html('rowspan');
+
+  if (cs === 1) {
+    const st0 = colIndex('namest');
+    const en = colIndex('nameend');
+    if (st0 !== null && en !== null) {
+      if (en < st0) throw spanFail(`<${cell.nodeName}> has nameend before namest`, st);
+      cs = en - st0 + 1;
+    } else if (st0 !== null || en !== null) {
+      throw spanFail(`<${cell.nodeName}> carries one of namest/nameend; they name a span together`, st);
+    }
+  }
+  if (rs === 1) rs = num('morerows', 0) + 1;
+  return { cs, rs };
+}
+
+/** A span that cannot be resolved gets its OWN error: `fail`'s "add it to the allowlist" advice is
+ *  right for an unclassified element and wrong here — there is nothing to classify, and the cell
+ *  must not be placed approximately. */
+function spanFail(msg, st) {
+  return new Error(
+    `normalize: ${msg}, in ${unitLabel(st.unit)} — a table span is never approximated: a cell put `
+    + 'in the wrong column publishes a numeric limit under the wrong heading, silently',
+  );
 }
 
 function cellText(cell, st) {

@@ -662,6 +662,84 @@ test('CALS tables render: tgroup is transparent, colspec is metadata, row/entry 
   assert.match(body, /^> Note 1\.$/m);
 });
 
+test('CALS spans are the SAME grid rule under different attribute names — morerows and namest/nameend', () => {
+  // The real Table C3D3, transcribed from
+  // `.cache/extracted/ncc-2022-volume-one/XMLs/table-C3D3-maximum-size-of-fire-compartments-or-atria.xml`.
+  // `morerows="1"` is CALS for rowspan=2, and it is the ONLY thing keeping "Max volume—48 000 m3"
+  // under "Type A construction". Ignore it and every cell of the second row shifts one column
+  // left — the corpus then publishes 33 000 m3 as Type A's limit, which is Type B's. A wrongly
+  // placed numeric limit is the worst thing a compliance corpus can emit, and it is silent.
+  const body = md22('<clause><title>T</title><table-reference><num>C3D3</num><title>Maximum size</title>'
+    + '<table><tgroup cols="4">'
+    + '<colspec colname="001" colnum="1"/><colspec colname="002" colnum="2"/>'
+    + '<colspec colname="003" colnum="3"/><colspec colname="004" colnum="4"/>'
+    + '<thead><row><entry>Classification</entry><entry>Type A construction</entry>'
+    + '<entry>Type B construction</entry><entry>Type C construction</entry></row></thead>'
+    + '<tbody><row><entry morerows="1">5, 9b or 9c</entry><entry>Max floor area—8 000 m2</entry>'
+    + '<entry>Max floor area—5 500 m2</entry><entry>Max floor area—3 000 m2</entry></row>'
+    + '<row><entry>Max volume—48 000 m3</entry><entry>Max volume—33 000 m3</entry>'
+    + '<entry>max volume—18 000 m3</entry></row></tbody>'
+    + '</tgroup></table></table-reference></clause>');
+  const rows = body.split('\n').filter(l => l.startsWith('|'));
+  assert.deepEqual(rows, [
+    '| Classification | Type A construction | Type B construction | Type C construction |',
+    '| --- | --- | --- | --- |',
+    '| 5, 9b or 9c | Max floor area—8 000 m2 | Max floor area—5 500 m2 | Max floor area—3 000 m2 |',
+    '| 5, 9b or 9c | Max volume—48 000 m3 | Max volume—33 000 m3 | max volume—18 000 m3 |',
+  ]);
+
+  // Horizontal spans are named, not counted: `namest`/`nameend` reference two `colspec/@colname`s,
+  // so the width comes from the colspec ORDER of this tgroup and cannot be read off the entry.
+  const spanned = md22('<clause><title>T</title><table-reference><num>X</num><title>T</title>'
+    + '<table><tgroup cols="3">'
+    + '<colspec colname="c1" colnum="1"/><colspec colname="c2" colnum="2"/><colspec colname="c3" colnum="3"/>'
+    + '<thead><row><entry>Element</entry><entry namest="c2" nameend="c3">FRL</entry></row></thead>'
+    + '<tbody><row><entry>Wall</entry><entry>60</entry><entry>90</entry></row></tbody>'
+    + '</tgroup></table></table-reference></clause>');
+  const srows = spanned.split('\n').filter(l => l.startsWith('|'));
+  assert.deepEqual(srows, ['| Element | FRL | FRL |', '| --- | --- | --- |', '| Wall | 60 | 90 |']);
+
+  // …and a colname is a KEY, not a number. Table S1C2a's colspecs really are ordered
+  // 001, 002, 006, 005, 004, 003, and its header really does span `namest="002" nameend="003"`.
+  // By position that is five columns — which is what the published table shows; by numeric name it
+  // is two, which would put three FRL columns under no heading at all.
+  const s1c2a = md22('<clause><title>T</title><table-reference><num>S1C2a</num><title>Masonry</title>'
+    + '<table><tgroup cols="6">'
+    + '<colspec colname="001" colnum="1"/><colspec colname="002" colnum="2"/><colspec colname="006" colnum="3"/>'
+    + '<colspec colname="005" colnum="4"/><colspec colname="004" colnum="5"/><colspec colname="003" colnum="6"/>'
+    + '<thead><row><entry morerows="1">Masonry type</entry>'
+    + '<entry nameend="003" namest="002">Minimum thickness (mm) of principal material for FRLs</entry></row>'
+    + '<row><entry>60/60/60</entry><entry>90/90/90</entry><entry>120/120/120</entry>'
+    + '<entry>180/180/180</entry><entry>240/240/240</entry></row></thead>'
+    + '<tbody><row><entry>Calcium silicate</entry>'
+    + '<entry morerows="2" nameend="003" namest="002">See clause S1C2(d)(iv)</entry></row>'
+    + '<row><entry>Concrete</entry></row><row><entry>Fired clay</entry></row></tbody>'
+    + '</tgroup></table></table-reference></clause>');
+  const arows = s1c2a.split('\n').filter(l => l.startsWith('|'));
+  const see = 'See clause S1C2(d)(iv)';
+  assert.deepEqual(arows, [
+    `| Masonry type | ${Array(5).fill('Minimum thickness (mm) of principal material for FRLs').join(' | ')} |`,
+    '| --- | --- | --- | --- | --- | --- |',
+    '| Masonry type | 60/60/60 | 90/90/90 | 120/120/120 | 180/180/180 | 240/240/240 |',
+    `| Calcium silicate | ${Array(5).fill(see).join(' | ')} |`,
+    `| Concrete | ${Array(5).fill(see).join(' | ')} |`,
+    `| Fired clay | ${Array(5).fill(see).join(' | ')} |`,
+  ]);
+});
+
+test('a CALS span naming a column that does not exist THROWS — it cannot be placed by guessing', () => {
+  // The alternative to throwing is placing the cell somewhere plausible, which is how a numeric
+  // limit ends up under the wrong heading with nothing in the output to show for it.
+  assert.throws(() => md22('<clause><title>T</title><table-reference><num>X</num><title>T</title>'
+    + '<table><tgroup cols="2"><colspec colname="c1" colnum="1"/><colspec colname="c2" colnum="2"/>'
+    + '<tbody><row><entry namest="c1" nameend="c9">A</entry></row></tbody>'
+    + '</tgroup></table></table-reference></clause>'), /c9/);
+  assert.throws(() => md22('<clause><title>T</title><table-reference><num>X</num><title>T</title>'
+    + '<table><tgroup cols="2"><colspec colname="c1" colnum="1"/><colspec colname="c2" colnum="2"/>'
+    + '<tbody><row><entry morerows="oops">A</entry></row></tbody>'
+    + '</tgroup></table></table-reference></clause>'), /morerows/);
+});
+
 test('a figure reads href-resolved src, and @longdescref is the legend, not a reference', () => {
   const { bodyMd, figures } = normalizeUnit(unit22(el(
     '<clause><title>T</title><image-reference><num>11.2.1</num><title>Stairway terms</title>'
