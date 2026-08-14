@@ -613,7 +613,23 @@ function walkFiles(dir, rel = '') {
   return out.sort(byCodepoint);
 }
 
-const XML_PARSER = { onError: () => {} };   // @xmldom/xmldom 0.9 rejects the old errorHandler object
+/**
+ * The parser policy, and it is FAIL LOUD like everything else here.
+ *
+ * `{ onError: () => {} }` — what this was — silences recoverable XML errors, which in a repository
+ * whose stated rule is fail-loud means a malformed source file parses to a partial tree and the
+ * corpus is built from whatever survived. Measured across all 11,331 files of the four packages
+ * and the five 2025 documents: ZERO diagnostics at any level, so refusing them costs nothing today
+ * and names the file the day it stops being true. (@xmldom/xmldom 0.9 rejects the old
+ * `errorHandler` option object; the option is `onError`.)
+ */
+const XML_PARSER = {
+  onError: (level, message) => {
+    throw new Error(`read-2022: the XML parser reported ${level} — ${String(message).trim()}. `
+      + 'A recoverable parse error yields a PARTIAL tree, and a partial tree here is a clause with '
+      + 'content missing that nothing downstream can detect.');
+  },
+};
 
 /**
  * R51 — the enumerated clauses NCC 2022 does not publish from this package.

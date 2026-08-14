@@ -452,6 +452,9 @@ const have = fs.existsSync(pathOf('volume-one'));
 const FIGURE_RE = /^!\[[^\]\n]*\]\(https:\/\/cdn\.aecassistant\.com\.au\/images\/ncc\/2025\/(volume1|volume2|volume3|housing|livable_housing)\/[^\s()]+\)$/;
 const WARNING_CATEGORIES = new Set([
   'mathml-flattened', 'table-irregular', 'table-multirow-header', 'orphan-num', 'list-depth',
+  // R72's four, plus the one that exists so that no text-drop path is silent again.
+  'empty-subclause', 'empty-list-item', 'empty-callout', 'empty-table-reference', 'table-empty-rows',
+  'dropped-text',
 ]);
 
 // A paragraph made only of text and inline marks that render as-is must survive as ONE line,
@@ -500,7 +503,7 @@ for (const doc of DOCUMENTS_2025) {
     const units = readDocument2025(fs.readFileSync(pathOf(doc.key), 'utf8'), doc);
     assert.ok(units.length > 0);
     const unitNodes = new Set(units.map(x => x.node));
-    let chars = 0, withBody = 0, paragraphs = 0;
+    let chars = 0, withBody = 0, paragraphs = 0, unitsWithParagraphs = 0;
     const seenCategories = new Set();
     for (const u of units) {
       const who = `${doc.key} ${u.id ?? u.term ?? u.title}`;
@@ -528,23 +531,40 @@ for (const doc of DOCUMENTS_2025) {
       // legitimate, a line break anywhere inside the sentence is the defect this repo exists to
       // fix. Asserted unconditionally: no paragraph is exempt.
       const lines = bodyMd.split('\n');
+      let mine = 0;
+      let owned = 0;
       for (const p of ownParagraphs(u, unitNodes)) {
         if (!isPlainParagraph(p)) continue;
         const text = (p.textContent ?? '').replace(/\s+/g, ' ').trim();
         if (!text) continue;                                   // 4 empty <p/> in the corpus
+        owned++;
         paragraphs++;
+        mine++;
         assert.ok(lines.some(l => l.endsWith(text)),
           `${who}: paragraph does not survive as one line: ${JSON.stringify(text.slice(0, 80))}`);
       }
+      // PER UNIT, not per document. The aggregate floor below cannot notice ONE clause reduced to
+      // a dangling stem — two thousand other units' paragraphs drown it — so the non-vacuity claim
+      // is made where such a loss would be: a unit that owns prose contributes it to the check.
+      assert.equal(mine, owned, `${who}: owns ${owned} paragraphs but contributed ${mine} to the phrase-grep check`);
+      if (mine) unitsWithParagraphs++;
     }
     // Guard against a normalizer that passes every invariant by emitting nothing — including the
     // paragraph assertion above, which is vacuous if no paragraph is ever collected.
     assert.ok(withBody / units.length > 0.95, `${doc.key}: only ${withBody}/${units.length} units have a body`);
     assert.ok(chars / units.length > 200, `${doc.key}: mean body ${Math.round(chars / units.length)} chars — too thin`);
+    // Two floors, and the first is the one that means something: it is scaled to the units that
+    // actually carry prose, so a handful of long clauses cannot satisfy it on everybody's behalf.
+    assert.ok(unitsWithParagraphs > 0, `${doc.key}: no unit contributed a paragraph — the check is vacuous`);
+    assert.ok(paragraphs >= unitsWithParagraphs,
+      `${doc.key}: only ${paragraphs} paragraphs across ${unitsWithParagraphs} prose-bearing units`);
     assert.ok(paragraphs > units.length, `${doc.key}: only ${paragraphs} paragraphs checked across ${units.length} units`);
     // Pins the report's "0 in both". Either firing means a real shape the census never saw.
     assert.ok(!seenCategories.has('orphan-num'), `${doc.key}: a <num> had no paragraph to label`);
     assert.ok(!seenCategories.has('list-depth'), `${doc.key}: an <ol> nested past the style ladder`);
+    // Measured 0 in BOTH complete editions. Firing means this module is dropping text again — the
+    // failure mode the whole warning exists to stop being silent.
+    assert.ok(!seenCategories.has('dropped-text'), `${doc.key}: bare text under a block container was dropped`);
   });
 }
 

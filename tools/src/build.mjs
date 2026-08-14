@@ -29,7 +29,11 @@
 //     compliance corpus is the worst outcome available here.
 //
 // NOTHING IS WRITTEN UNTIL ALL FOUR PASS. Every document is read, normalized and emitted into
-// memory first, so a failing build leaves the previous corpus intact rather than half-rewritten.
+// memory first, so a failing ASSERTION leaves the previous corpus intact rather than half-rewritten.
+// IO is the one thing that claim does not cover: `applyPlan` writes an edition at a time, so a
+// filesystem failure part-way through leaves the corpus part old and part new. That is REPORTED —
+// the run always prints its report and names which editions reached disk — rather than thrown out
+// of the middle of a loop with nothing said.
 // The first three are GATHERED and reported together, and the whole report — parity census
 // included — prints BEFORE the throw: one run yields one ruling, with the evidence needed to make
 // it. A normalize error is the exception and throws immediately, because there are no meaningful
@@ -1341,7 +1345,14 @@ function droppedCitationsBlock(built) {
     '  every <table>/<image> in it belongs to the OTHER edition, so the citing clause ships without',
     '  it. This is the source\'s own condition, not a normalizer defect — but it is content the',
     '  published clause has and the corpus file does not, and the reader cannot tell.',
-    '  Counted over each document as READ (whole), not over the slice that was emitted.');
+    '  Counted over each document as READ (whole), not over the slice that was emitted.',
+    '',
+    '  WHAT THIS DOES NOT COUNT: a citation whose POINTER never reached a wrapper. It is raised where',
+    '  a <table-reference>/<image-reference> conref RESOLVES to an empty wrapper, so a pointer the',
+    '  base view discarded — or one inside an element it discarded — cannot appear here at all, and',
+    '  the loss shows only as prose citing something no file embeds. That is what acceptance #4 and',
+    '  #8 are for: they read the CORPUS and ask whether every cited figure and table is reachable in',
+    '  one grep, which is the same question asked where the pointer can no longer hide the answer.');
   for (const d of list.slice(0, 20)) {
     lines.push(`  ${pad(d.doc, 20)}${pad(d.kind, 7)}${d.host}`, `${' '.repeat(29)}-> ${d.wrapper}`);
   }
@@ -1663,13 +1674,38 @@ export async function main(argv) {
   const withholdingFailure = indexWithholdingError(opts, indexes.withheld);
   if (withholdingFailure) throw new Error(withholdingFailure);
 
-  const reports = built.map(b => report(b, applyPlan(b), opts));
-  for (const { relPath, content } of buildIndexes(indexes.units, { tree: corpusTree(), omissions: indexes.omissions })) {
-    const file = toFsPath(relPath);
-    fs.mkdirSync(path.dirname(file), { recursive: true });
-    fs.writeFileSync(file, content);
+  // "NOTHING IS WRITTEN UNTIL ALL FOUR PASS" is true of the ASSERTIONS. It is not true of IO:
+  // `applyPlan` writes and deletes one edition at a time, so a filesystem failure part-way leaves
+  // the corpus part old and part new. That cannot be prevented without staging every byte, but it
+  // must not be SILENT — the previous shape threw out of the middle of a `.map` and printed no
+  // report at all, leaving an operator with a stack trace and no way to know which editions are on
+  // disk. The plans still run in order; what changes is that the outcome is always stated.
+  const applied = [];
+  let ioFailure = null;
+  for (const [i, b] of built.entries()) {
+    if (ioFailure) { applied.push(null); continue; }
+    try {
+      applied.push(applyPlan(b));
+    } catch (cause) {
+      applied.push(null);
+      ioFailure = new Error(`build: writing corpus/${b.editionKey} failed — ${cause.message}. Written before it: `
+        + `${built.slice(0, i).map(x => x.editionKey).join(', ') || 'none'}; not attempted: `
+        + `${built.slice(i + 1).map(x => x.editionKey).join(', ') || 'none'}. The corpus is now PART OLD AND `
+        + 'PART NEW, and the edition indexes were not rewritten; re-run the build once the cause is fixed.',
+      { cause });
+    }
+  }
+  const reports = built.map((b, i) => report(b, applied[i], opts));
+  // Indexes describe the whole corpus, so they are written only when the whole corpus is.
+  if (!ioFailure) {
+    for (const { relPath, content } of buildIndexes(indexes.units, { tree: corpusTree(), omissions: indexes.omissions })) {
+      const file = toFsPath(relPath);
+      fs.mkdirSync(path.dirname(file), { recursive: true });
+      fs.writeFileSync(file, content);
+    }
   }
   console.log(reports.join('\n\n'));
+  if (ioFailure) throw ioFailure;
 }
 
 if (process.argv[1] === fileURLToPath(import.meta.url)) {

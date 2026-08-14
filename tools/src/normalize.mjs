@@ -236,6 +236,7 @@ export function normalizeUnit(unit, { cdnBase = DEFAULT_CDN_BASE, year, cdnKey }
   if (lead) sink.block(lead);
   for (const child of children) renderBlock(child, sink, st, 0);
   flushPendingNum(sink, st);
+  warnDroppedText(children, st);
 
   return {
     bodyMd: sink.done().join('\n\n'),
@@ -244,6 +245,43 @@ export function normalizeUnit(unit, { cdnBase = DEFAULT_CDN_BASE, year, cdnKey }
     warnings: st.warnings,
     tableRefs: st.tableRefs,
   };
+}
+
+/**
+ * Elements whose children are walked with `elementChildren`, i.e. whose own TEXT NODES are never
+ * read. A non-whitespace text node sitting directly under one of these is content this module
+ * drops — and until now it dropped it in silence, which is the one thing rule 3 forbids.
+ *
+ * Not a fail-loud throw, deliberately: the shapes are the two editions' own and a throw here would
+ * refuse a document over a stray character. A warning reaches the build report, which is where
+ * every other "the source lost something" fact in this pipeline is stated. Measured over both
+ * complete editions: 0.
+ */
+const TEXT_DROPPING_TAGS = new Set([
+  'clause', 'subclause', 'subclause-variation', 'content', 'section', 'page', 'part',
+  'specification', 'spec-topic', 'intro-part', 'subtopic', 'topicset', 'clauseref',
+  'ol', 'ul', 'callout', 'desc-note', 'resources', 'table', 'tgroup', 'thead', 'tbody', 'tfoot',
+  'table-reference', 'table-reference-variation', 'table-variation',
+  'image-reference', 'image-reference-variation',
+  'abcb-glossentry', 'glossdef', 'glossBody', 'glossAlt', 'equation-block',
+]);
+
+/** Record every non-whitespace text node this module's walkers will not read. */
+function warnDroppedText(roots, st) {
+  const visit = node => {
+    const drops = TEXT_DROPPING_TAGS.has(node.nodeName);
+    for (let c = node.firstChild; c; c = c.nextSibling) {
+      if (c.nodeType === 3) {
+        if (drops && (c.data ?? '').trim()) {
+          st.warnings.push(`dropped-text: <${node.nodeName}> holds bare text no rule reads — `
+            + JSON.stringify((c.data ?? '').replace(/\s+/g, ' ').trim().slice(0, 60)));
+        }
+        continue;
+      }
+      if (c.nodeType === 1) visit(c);
+    }
+  };
+  for (const r of roots) visit(r);
 }
 
 /* -- unit body selection ---------------------------------------------------- */
@@ -716,8 +754,11 @@ function renderTable(table, st) {
   if (!rows.length) return '';
 
   // Place every cell in the first free column, duplicating across colspan and reserving down
-  // rowspan. Verified against all 651 corpus tables: the result is rectangular with no holes,
-  // which is what makes "GFM with cells duplicated" the right call rather than a fallback.
+  // rowspan. Verified against the 651 tables of the NCC 2025 element census — which is what that
+  // number counts, and it is not the corpus total: the two editions together now publish about
+  // 1,218 table headings. The 2022/CALS side is asserted separately and by construction, by the
+  // namest check below (0 disagreements in 1,337 entries). The result is rectangular with no
+  // holes, which is what makes "GFM with cells duplicated" the right call rather than a fallback.
   const grid = [];
   let irregular = 0;
   rows.forEach((row, r) => {

@@ -116,7 +116,17 @@ export function overviewChildren(el) {
  * @returns {Array<object>} RawUnits in document order
  */
 export function readDocument2025(xmlString, doc, { sections = null } = {}) {
-  const dom = new DOMParser().parseFromString(xmlString, 'text/xml');
+  // Fail loud, on the same terms as read-2022.mjs's XML_PARSER: the default handler REPORTS a
+  // recoverable error and carries on with a partial tree, and a partial tree here is a clause with
+  // content missing that nothing downstream can detect. Measured: 0 diagnostics at any level across
+  // all five 2025 documents, so this costs nothing today and names the file the day it does not.
+  const dom = new DOMParser({
+    onError: (level, message) => {
+      throw new Error(`read-2025 [${doc.key}]: the XML parser reported ${level} — ${String(message).trim()}. `
+        + 'A recoverable parse error yields a PARTIAL tree, and a partial tree here is a clause with '
+        + 'content missing that nothing downstream can detect.');
+    },
+  }).parseFromString(xmlString, 'text/xml');
   if (!dom?.documentElement) {
     throw new Error(`read-2025 [${doc.key}]: contents.xml did not parse to a document element`);
   }
