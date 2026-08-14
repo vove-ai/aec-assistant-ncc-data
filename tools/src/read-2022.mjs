@@ -354,8 +354,13 @@ function walkFiles(dir, rel = '') {
 const XML_PARSER = { onError: () => {} };   // @xmldom/xmldom 0.9 rejects the old errorHandler object
 
 /** Filenames carry spaces, dots, commas, en-dashes and parentheses. Fold them all, and case, so
- *  the state-variation and figure joins compare designations rather than typography (§5.3.1, §6). */
-const normStem = s => String(s).replace(/\.[^.]*$/, '').toLowerCase().replace(/[.\-_ ]+/g, '-').replace(/^-+|-+$/g, '');
+ *  the state-variation and figure joins compare designations rather than typography (§5.3.1, §6).
+ *
+ *  Exported because sync-figures.mjs re-resolves a published CDN filename back to its file in
+ *  `Images/`, and that is the SAME fold as §6 rule 1 + rule 4. A second, hand-rolled copy of it
+ *  there could drift from this one and pick a different disk file — under a key that still looks
+ *  correct. One fold, one place. */
+export const normStem = s => String(s).replace(/\.[^.]*$/, '').toLowerCase().replace(/[.\-_ ]+/g, '-').replace(/^-+|-+$/g, '');
 const normId = s => String(s).trim().toLowerCase().replace(/[.\-_ ]+/g, '-').replace(/^-+|-+$/g, '');
 
 /** `Section A` -> A (section) · `Schedule 1` -> 1 (schedule) · `2` -> 2 (other), matching the
