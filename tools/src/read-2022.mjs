@@ -62,19 +62,30 @@ const localName = n => (n.includes(':') ? n.slice(n.indexOf(':') + 1) : n);
  *    8,299 are marks: 17,415 false positives, every one an `xref/@type` — which would delete
  *    every cross-reference in the volume from the base view.
  */
-function markOf(el) {
+function marksOf(el) {
   const attrs = el.attributes;
-  if (!attrs) return null;
-  let type = null;
-  let dateTime = '';
+  if (!attrs) return [];
+  // Paired by PREFIX, not by document order: 1-2 elements per package carry the mark under two
+  // spellings at once, and volume-one's `10-8-3-Ventilation-…` carries a bare
+  // `type="insert" dateTime="2022-01-13"` beside an `xt:type="insert" xt:dateTime="2024-03-12"`.
+  // Taking "the last type" with "the last dateTime" would pair one spelling's direction with the
+  // other's date the moment the source writes them the other way round.
+  const byPrefix = new Map();
   for (let i = 0; i < attrs.length; i++) {
     const a = attrs[i];
     const ln = localName(a.nodeName);
-    if (ln === 'type' && (a.namespaceURI === TRACKCHANGES_NS || a.namespaceURI === null)
-      && (a.value === 'insert' || a.value === 'delete')) type = a.value;
-    else if (ln === 'dateTime') dateTime = a.value;
+    if (ln !== 'type' && ln !== 'dateTime') continue;
+    const prefix = a.nodeName.includes(':') ? a.nodeName.slice(0, a.nodeName.indexOf(':')) : '';
+    if (ln === 'type') {
+      if ((a.namespaceURI !== TRACKCHANGES_NS && a.namespaceURI !== null)
+        || (a.value !== 'insert' && a.value !== 'delete')) continue;
+      byPrefix.set(prefix, { ...(byPrefix.get(prefix) ?? {}), type: a.value });
+    } else {
+      byPrefix.set(prefix, { ...(byPrefix.get(prefix) ?? {}), dateTime: a.value });
+    }
   }
-  return type ? { type, year: editYear(dateTime, el) } : null;
+  return [...byPrefix.values()].filter(m => m.type)
+    .map(m => ({ type: m.type, year: editYear(m.dateTime ?? '', el) }));
 }
 
 /**
@@ -113,9 +124,10 @@ const DRAFT_CYCLE_FROM = 2024;
  * rule, and would go on writing it as the source changes.
  */
 export function baseViewKeeps(el) {
-  const m = markOf(el);
-  if (!m) return true;
-  return m.type === 'insert' ? m.year < DRAFT_CYCLE_FROM : m.year >= DRAFT_CYCLE_FROM;
+  // EVERY mark must say keep. An element marked inserted in the 2022 cycle AND again in the 2025
+  // cycle is 2025-draft content; requiring unanimity decides that without depending on which
+  // spelling the source happened to write last.
+  return marksOf(el).every(m => (m.type === 'insert' ? m.year < DRAFT_CYCLE_FROM : m.year >= DRAFT_CYCLE_FROM));
 }
 
 /**
@@ -213,8 +225,7 @@ function acceptedText(el) {
         continue;
       }
       if (ln === 'placeholder') continue;
-      const m = markOf(c);
-      if (m && m.type === 'delete' && m.year >= DRAFT_CYCLE_FROM) continue;
+      if (marksOf(c).some(m => m.type === 'delete' && m.year >= DRAFT_CYCLE_FROM)) continue;
       visit(c);
     }
   };

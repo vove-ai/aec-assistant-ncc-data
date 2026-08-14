@@ -834,3 +834,20 @@ test('a clause reachable only through a 2025 insertion, and supplied by nothing 
     'XMLs/glossary-Existing-building-WA.xml': null,
   });
 });
+
+test('an element marked under TWO spellings at once is judged by all of them (§1.1)', () => {
+  // volume-one's 10-8-3-Ventilation-… carries a bare `type="insert" dateTime="2022-01-13"` beside
+  // an `xt:type="insert" xt:dateTime="2024-03-12"`: inserted in the NCC 2022 cycle and again in
+  // the 2025 one. Pairing "the last type" with "the last dateTime" would answer differently
+  // depending on which spelling the source wrote last.
+  const both = (a, b) => parse(`<image-reference ${XT} ${a} ${b}/>`).documentElement;
+  const cycle2022 = 'type="insert" dateTime="2022-01-13T12:41:32"';
+  const cycle2025 = 'xt:type="insert" xt:dateTime="2024-03-12T07:53:35"';
+  assert.equal(baseViewKeeps(both(cycle2022, cycle2025)), false);
+  assert.equal(baseViewKeeps(both(cycle2025, cycle2022)), false, 'the answer cannot depend on attribute order');
+  // A 2024 DELETE is kept (it is NCC 2022 text the draft removes), so that pairing survives.
+  assert.equal(baseViewKeeps(both(cycle2022, 'xt:type="delete" xt:dateTime="2024-03-12T07:53:35"')), true);
+  // A <=2022 delete is dropped, and one mark saying drop is enough however the others read.
+  assert.equal(baseViewKeeps(both('type="delete" dateTime="2021-06-01T00:00:00"',
+    'xt:type="insert" xt:dateTime="2021-06-01T00:00:00"')), false, 'unanimity, not majority');
+});
