@@ -583,6 +583,58 @@ test('--sections slices on the derived section num', () => {
   });
 });
 
+test('a slice that excludes a 2025-duplicate TWIN still reads (§4.1)', () => {
+  // The duplicate check asks "is this designation already in the corpus". Asking the EMITTED
+  // units makes the answer depend on the slice, so a slice that leaves the twin out turns a
+  // reconciled duplicate into a throw. Measured on the real volume-one before the fix:
+  // `--sections A` and `--sections C` both threw, because F3V1's twin lives in Section F --
+  // and Task 11's pilot is `--sections A,C`. It is asked of the files the walk RESOLVED instead.
+  withFixture(dir => {
+    for (const sections of [['G'], ['F'], ['F', 'G'], null]) {
+      const units = readPackage2022(dir, VOL1, { sections });
+      assert.ok(units.length, `sections=${JSON.stringify(sections)} produced nothing`);
+      assert.equal(units.filter(u => u.id === 'F3D2').length, sections && !sections.includes('F') ? 0 : 1);
+    }
+  }, {
+    'XMLs/FlattenedFile.xml': `<?xml version="1.0"?><abcb-map ${XT} publishing-id="vol1"><title>T</title>`
+      + '<topicset navtitle="Health and amenity" section-num="Section F">'
+      + '<part outputclass="ncc-part" id="_F3"><num>F3</num><title>Roof and wall cladding</title>'
+      + '<subtopic>' + clauseref('F3D2-roof-coverings.xml') + '</subtopic></part>'
+      + '<part outputclass="ncc-part" id="_F1"><num>F1</num><title>Surface water management</title>'
+      + '<subtopic><clauseref outputclass="clausref-ncc" xt:type="insert" xt:dateTime="2024-03-15T00:00:00">'
+      + '<clause conref="F1D12-roof-coverings.xml" id="_stub2" outputclass="ncc-clause"><sptc/><title/><archive-num/></clause>'
+      + '</clauseref></subtopic></part></topicset>'
+      + '<topicset navtitle="Ancillary provisions" section-num="Section G">'
+      + '<part outputclass="ncc-part" id="_G1"><num>G1</num><title>Minor structures</title>'
+      + '<subtopic>' + clauseref('A1G1-scope.xml') + '</subtopic></part></topicset></abcb-map>',
+    'XMLs/F3D2-roof-coverings.xml': `<?xml version="1.0"?><clause ${XT} id="_f3d2" outputclass="ncc-clause">`
+      + '<sptc>F3D2</sptc><title>Roof coverings</title><archive-num/>'
+      + '<subclause outputclass="subclause"><title>SubClause</title><num>1</num><p>Roof coverings must.</p></subclause></clause>',
+    'XMLs/glossary-Existing-building-WA.xml': null,
+  });
+});
+
+test('a citation whose wrapper has no NCC 2022 content is DROPPED AND RECORDED (§6.2)', () => {
+  // 32-34 table wrappers and 11 figure wrappers per package have no base-view content, and 14
+  // live 2022 citations point at them: B1P1 loses all three minimum-annual-reliability-index
+  // tables. The markdown gives a reader no signal that a cited table had no 2022 content, so the
+  // record is the only place the loss can be seen -- and §5.3 calls an omission a reader cannot
+  // detect the worst class there is.
+  withFixture(dir => {
+    const diagnostics = {};
+    const units = readPackage2022(dir, VOL1, { diagnostics });
+    assert.deepEqual(diagnostics.droppedCitations,
+      [{ host: 'A1G1-scope.xml', wrapper: 'table-a1g1-limits.xml', kind: 'table' }]);
+    const body = normalizeUnit(byId(units, 'A1G1'), { year: '2022', cdnKey: 'volume1' }).bodyMd;
+    assert.doesNotMatch(body, /Table A1G1a/, 'a 2025-draft table is never published as NCC 2022 law');
+  }, {
+    // The wrapper's only <table> is a 2024 insertion, so the base view leaves it empty.
+    'XMLs/table-a1g1-limits.xml': `<?xml version="1.0"?><table-reference ${XT} id="_tab1"><num>A1G1a</num>`
+      + '<title>Limits</title><table xt:type="insert" xt:dateTime="2024-08-30T11:12:31"><tgroup cols="1">'
+      + '<colspec colname="c1" colnum="1"/><tbody><row><entry>0.10</entry></row></tbody></tgroup></table></table-reference>',
+  });
+});
+
 test('BODY_TAGS_2022 tells the renderer which children belong to another unit', () => {
   for (const t of ['clause', 'clauseref', 'subtopic', 'part', 'specification', 'part-variation',
     'clause-variation', 'abcb-glossentry', 'page', 'topicset']) {
@@ -850,4 +902,19 @@ test('an element marked under TWO spellings at once is judged by all of them (§
   // A <=2022 delete is dropped, and one mark saying drop is enough however the others read.
   assert.equal(baseViewKeeps(both('type="delete" dateTime="2021-06-01T00:00:00"',
     'xt:type="insert" xt:dateTime="2021-06-01T00:00:00"')), false, 'unanimity, not majority');
+});
+
+test('the leading-token figure rule refuses an ambiguous match rather than guessing (§6.1)', () => {
+  // Rule 5 exists for one wrapper per package (`image-S46C2-…`, href `10145_0.2.0.png`) and is the
+  // only rule that can match on a token as short as `10`. Taking the codepoint-first of several
+  // candidates would attach a WRONG figure and say nothing — fail-open in a fail-loud module.
+  withFixture(dir => {
+    assert.throws(() => readPackage2022(dir, VOL1), /leading-token rule.*matches 2 files/s);
+  }, {
+    'XMLs/image-a1g1-stairway-terms.xml': '<?xml version="1.0"?><image-reference id="_fig1"><num>A1G1</num>'
+      + '<title>Stairway terms</title><image alt="T" href="/tmp/QppServer/10145_0.2.0.png"/></image-reference>',
+    'Images/image-a1g1-stairway-terms.svg': null,
+    'Images/image-A1G1-first.svg': '<svg/>',
+    'Images/image-A1G1-second.svg': '<svg/>',
+  });
 });

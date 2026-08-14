@@ -85,7 +85,7 @@ const BLOCK_TAGS = new Set([
   // --- 2022 spellings (docs/content-model-2022.md §9.1) ---------------------------------
   'image',                      // 3446 — the 2022 <img>. `href` is a publishing-session path, so
                                 //        read-2022.mjs resolves the disk name onto `src` (§6).
-  'clauseref',                  // 5705 — a pointer at a clause emitted as its own unit. Reached
+  'clauseref',                  // 6957 — a pointer at a clause emitted as its own unit. Reached
                                 //        nested inside a Specification's <section>, which is that
                                 //        Specification's own prose AND holds 310 of them.
   'callout-type',               // 2613 — always empty; the box's kind is @ncc-info-type
@@ -749,7 +749,12 @@ function figureLine(img, num, title, st) {
 function designation(node, numChild) {
   const attrNum = (node.getAttribute('num') ?? '').replace(/\s+/g, ' ').trim();
   if (attrNum) return attrNum;
-  return numChild ? (numChild.textContent ?? '').replace(/\s+/g, ' ').trim() : '';
+  // `<num><placeholder outputclass="placeholder">[NUMBER]</placeholder></num>` is an authoring stub
+  // on 8 cover-page figures, not a designation — read.mjs's `supersedesOf` guards `archive-num`
+  // against the same element for the same reason. Without this the corpus ships
+  // `![Figure [NUMBER]: Front Cover - Volume Two](…)`.
+  if (!numChild || elementChildren(numChild).some(c => c.nodeName === 'placeholder')) return '';
+  return (numChild.textContent ?? '').replace(/\s+/g, ' ').trim();
 }
 
 function figureUrl(src, st) {

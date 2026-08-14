@@ -731,3 +731,15 @@ test('a unit with no bodyTags is refused rather than rendered against the wrong 
   assert.throws(() => normalizeUnit({ node: el('<clause><title>T</title><p>x</p></clause>'), kind: 'clause', id: 'T' }, opts),
     /carries no bodyTags/);
 });
+
+test('an authoring placeholder is not a figure designation', () => {
+  // The cover pages carry <num><placeholder>[NUMBER]</placeholder></num>, and read-2022.mjs's
+  // `supersedesOf` already guards `archive-num` against the same element. Without the same guard
+  // here, 8 units ship `![Figure [NUMBER]: Front Cover - Volume Two](…)`.
+  const body = md22('<page outputclass="page"><title>Front Cover</title>'
+    + '<image-reference><num><placeholder outputclass="placeholder">[NUMBER]</placeholder></num>'
+    + '<title>Front Cover - Volume Two</title><image alt="c" src="cover-front-vol2.pdf" href="../Images/cover-front-vol2.pdf"/>'
+    + '</image-reference></page>', { kind: 'page', id: null, title: 'Front Cover' });
+  assert.match(body, /^!\[Figure: Front Cover - Volume Two\]/m);
+  assert.ok(!/\[NUMBER\]/.test(body), 'the placeholder never ships as content');
+});

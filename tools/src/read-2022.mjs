@@ -413,7 +413,8 @@ export function readPackage2022(pkgDir, doc, { sections = null, diagnostics = nu
     // populations differ on purpose — the censuses cover the whole package, which is what
     // docs/content-model-2022.md measured, while emission covers only what the map reaches.
     stateClauseUnits: { del: 0, repl: 0 },
-    brokenConrefs: [], unjoinedPointers: [], uncategorisedGlossary: [], unreferencedImages: 0,
+    brokenConrefs: [], unjoinedPointers: [], uncategorisedGlossary: [], droppedCitations: [],
+    unreferencedImages: 0,
     pages: 0, overviews: 0, glossrefs: 0,
   };
 
@@ -542,9 +543,20 @@ export function readPackage2022(pkgDir, doc, { sections = null, diagnostics = nu
       ?? imageByLowerStem.get(stem.replace(/^image-/, '').toLowerCase())                      // 3
       ?? imageByNormStem.get(normStem(stem));                                                 // 4
     if (hit) return hit;
-    const token = stem.replace(/^image-/, '').split('-')[0];                                  // 5
+    // 5. The leading spec-clause token. One wrapper per package needs it
+    // (`image-S46C2-explanatory-calculation-of-fan-performance-ratio.xml`, whose href is
+    // `10145_0.2.0.png`), and it is the only rule here that could match on something as short as
+    // `10`. Taking the codepoint-first of several candidates would attach a WRONG figure silently,
+    // which is fail-open in a fail-loud module — so an ambiguous token is an error, not a guess.
+    const token = stem.replace(/^image-/, '').split('-')[0];
     const prefix = `${normId(`image-${token}`)}-`;
     const byToken = images.filter(im => normStem(im).startsWith(prefix)).sort(byCodepoint);
+    if (byToken.length > 1) {
+      throw new Error(`read-2022 [${doc.key}]: ${wrapperFile} falls through to the leading-token rule `
+        + `and token ${JSON.stringify(token)} matches ${byToken.length} files in Images/ `
+        + `(${byToken.slice(0, 4).join(', ')}) — one of them would be attached as this figure by `
+        + 'codepoint order alone');
+    }
     return byToken[0] ?? null;
   }
 
@@ -578,7 +590,7 @@ export function readPackage2022(pkgDir, doc, { sections = null, diagnostics = nu
    * table ones are cited by live 2022 clauses (§6.2). The citation is dropped and recorded — the
    * alternative is publishing a 2025 draft table as NCC 2022 law.
    */
-  function splice(node, homeFile = null) {
+  function splice(node, homeFile = null, host = null) {
     for (const el of elementChildren(node)) {
       // Take the OUTER of a nested `image > image` pair (260 of them): an outer vector reference
       // with a raster fallback inside it. Descending would resolve — and count — the fallback too.
@@ -593,7 +605,7 @@ export function readPackage2022(pkgDir, doc, { sections = null, diagnostics = nu
         continue;
       }
       const isPointer = (el.nodeName === 'image-reference' || el.nodeName === 'table-reference') && attr(el, 'conref');
-      if (!isPointer) { splice(el, homeFile); continue; }
+      if (!isPointer) { splice(el, homeFile, host); continue; }
       const conref = el.getAttribute('conref');
       const target = wrapperById.get(attr(el, 'id') ?? '') ?? (facts.has(conref) ? conref : null);
       if (!target) {
@@ -606,11 +618,18 @@ export function readPackage2022(pkgDir, doc, { sections = null, diagnostics = nu
       const wrapper = load(target).documentElement;
       const payload = el.nodeName === 'image-reference' ? 'image' : 'table';
       if (!childEl(wrapper, payload)) {
-        node.removeChild(el);                     // no NCC 2022 content behind this citation
+        // §6.2: the wrapper has no NCC 2022 content, so the citation is dropped — AND the citing
+        // clause is reported. 14 live citations per package land here (10 tables, 4 figures):
+        // B1P1 loses all three minimum-annual-reliability-index tables, J3D14 its heated-water
+        // load-factor tables. The markdown gives a reader no signal that a cited table had no 2022
+        // content, which is exactly the "the reader cannot tell anything is missing" failure §5.3
+        // calls the worst class there is — so the record is the only place it can be seen.
+        dg.droppedCitations.push({ host: host ?? homeFile ?? 'FlattenedFile.xml', wrapper: target, kind: payload });
+        node.removeChild(el);
         continue;
       }
       const clone = wrapper.cloneNode(true);
-      splice(clone, target);
+      splice(clone, target, host);
       node.replaceChild(clone, el);
     }
   }
@@ -730,7 +749,7 @@ export function readPackage2022(pkgDir, doc, { sections = null, diagnostics = nu
     if (!term) { dg.glossary.only2025++; return; }
     if (!state) categoryByTerm.set(term, category);
     if (!inScope(ctx)) return;
-    splice(el);
+    splice(el, null, `glossary: ${term}`);
     emit({
       kind: 'glossary',
       id: null, term, title: term,
@@ -750,7 +769,7 @@ export function readPackage2022(pkgDir, doc, { sections = null, diagnostics = nu
     if (root.nodeName !== 'clause') {
       throw new Error(`read-2022 [${doc.key}]: ${file} is a <${root.nodeName}>, not a clause — a clauseref points at it`);
     }
-    splice(root);
+    splice(root, null, file);
     const { building, climate } = facetsOf(root);
     emit({
       kind: 'clause',
@@ -878,7 +897,7 @@ export function readPackage2022(pkgDir, doc, { sections = null, diagnostics = nu
       }
       if (!targetIsNcc2022(target)) continue;
       const root = load(target).documentElement;
-      splice(root);
+      splice(root, null, target);
       dg.overviews++;
       emit({
         kind: 'page', overview: true,
@@ -975,7 +994,7 @@ export function readPackage2022(pkgDir, doc, { sections = null, diagnostics = nu
       next.overviewOwner = prose.length > 0;
       if (inScope(next)) {
         if (prose.length) {
-          for (const p of prose) splice(p);
+          for (const p of prose) splice(p, null, `${tag} ${num || '(no num)'}`);
           dg.overviews++;
           emit({
             kind: 'page', overview: true,
@@ -1036,7 +1055,7 @@ export function readPackage2022(pkgDir, doc, { sections = null, diagnostics = nu
     if (UNIT_TAGS.has(tag)) {
       if (tag === 'page') {
         if (!inScope(ctx)) return;
-        splice(el);
+        splice(el, null, `page: ${childText(el, 'title')}`);
         dg.pages++;
         emit({
           kind: 'page',
@@ -1089,7 +1108,12 @@ export function readPackage2022(pkgDir, doc, { sections = null, diagnostics = nu
    * even the container the map offers would be wrong. It throws.
    */
   {
-    const emittedIds = new Set(units.filter(u => u.kind === 'clause' && !u.state).map(u => u.id));
+    // Derived from the files the walk RESOLVED, not from the units it emitted: `units` is the
+    // in-scope set, and `emittedClauseFiles` is populated before the `inScope` gate, so reading
+    // this off `units` makes the assertion depend on the slice. Measured before the fix:
+    // `--sections A` and `--sections C` both threw on volume-one because F3V1's twin lives in
+    // Section F — and Task 11's pilot slice is A,C.
+    const emittedIds = new Set([...emittedClauseFiles].map(f => facts.get(f)?.baseId).filter(Boolean));
     const mapAccepted = new DOMParser(XML_PARSER).parseFromString(mapSrc, 'text/xml');
     (function scan(el) {
       for (const c of elementChildren(el)) {
