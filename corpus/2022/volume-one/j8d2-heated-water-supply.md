@@ -13,9 +13,3 @@ building_classes_excluded: Class 1a, Class 1b, Class 10a, Class 10b, Class 10c
 # J8D2 — Heated water supply
 
 **(1)** A heated water supply system for food preparation and sanitary purposes must be designed and installed in accordance with Part B2 of NCC Volume Three — Plumbing Code of Australia.
-
-**(2)**
-
-**(3)**
-
-**(4)**

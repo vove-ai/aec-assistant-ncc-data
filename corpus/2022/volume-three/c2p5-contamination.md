@@ -16,5 +16,3 @@ supersedes: 2019:CP2.1
 **(2)** A sanitary drainage system must avoid the entry of water, foul air and gases from the system into buildings.
 
 **(3)** A sanitary drainage system must avoid the entry of surface water, sub-surface water and stormwater into the system.
-
-**(4)**

@@ -5,31 +5,28 @@ One line per file in `corpus/2022/`, as
 Paths are relative to this file. Grep here when the designation is known but the wording is
 not; grep the files themselves when it is the other way round.
 
-Units: 2993 — clause 2221 · glossary 513 · page 259
+Units: 2997 — clause 2225 · glossary 513 · page 259
 Source dataset: alvar-ncc-data release `ncc-2026-07`
 Amendment state: NCC 2022 — as first published, no amendment
 
-Not published here: 12 clauses the source packages
-cannot supply — the map names a clause the package does not contain, or the clause is NCC 2025
-only. Each is ruled on in OMITTED_2022_CLAUSES with its evidence and printed by the build. Cite
-the live Code for these; nothing here stands in for them.
-  volume-one B1D1 — map-identity-unresolved
-  volume-one C2D1 — map-identity-unresolved
+Not published here: 8 clauses — 9 files counting jurisdiction variations — that the source
+packages cannot supply: the map names a clause the package does not contain, or the clause is
+NCC 2025 only. Each is ruled on in OMITTED_2022_CLAUSES with its evidence and printed by the
+build. Cite the live Code for these; nothing here stands in for them.
   volume-one D3D31 — clause-is-2025-only
-  volume-three B1D1 — map-identity-unresolved
   volume-three B1V1 — clause-is-2025-only
   volume-three B5D7 — clause-is-2025-only
   volume-three C1O1 — map-identity-unresolved
-  volume-three C2D1 — map-identity-unresolved
   volume-three C3D1 — map-identity-unresolved
   volume-three D1O1 — map-identity-unresolved
-  volume-three E1D1 — map-identity-unresolved
+  volume-three E1D1 (and its TAS variation) — map-identity-unresolved
   volume-three E1O1 — map-identity-unresolved
 
-Five cross-references in the NCC 2022 base text name the NCC 2025 designation of their target.
+Six cross-references in the NCC 2022 base text name the NCC 2025 designation of their target.
 They are untracked in the source, so they are reproduced as the Code prints them rather than
 rewritten. The 2022 form of each is given here.
   prints F1D11 — this edition's clause is F1D8 — volume-one/f1d8-subfloor-ventilation.md — Table F1D8 column header
+  prints B1P7 — this edition's clause is B1P6 — volume-three/b1d1-deemed-to-satisfy-provisions.md
   prints B2P12 — this edition's clause is B2P11 — volume-three/b2d1-deemed-to-satisfy-provisions.md
   prints B3P8 — this edition's clause is B3P7 — volume-three/b3d1-deemed-to-satisfy-provisions.md
   prints B6D7 — this edition's clause is B6D6 — volume-three/b6d1-deemed-to-satisfy-provisions.md
@@ -897,7 +894,7 @@ Whole-of-home energy usage (NSW) → housing-provisions/part-13.6-nsw-whole-of-h
 Whole-of-home energy usage (NT) → housing-provisions/part-13.6-nt-whole-of-home-energy-usage.md — Whole-of-home energy usage
 Whole-of-home energy usage (TAS) → housing-provisions/part-13.6-tas-whole-of-home-energy-usage.md — Whole-of-home energy usage
 
-## volume-one (1397)
+## volume-one (1399)
 
 A1G1 → volume-one/a1g1-scope-of-ncc-volume-one.md — Scope of NCC Volume One
 A1G2 → volume-one/a1g2-scope-of-ncc-volume-two.md — Scope of NCC Volume Two
@@ -947,6 +944,7 @@ Application of the NCC in States and Territories → volume-one/part-a3-applicat
 Artificial lighting and power → volume-one/part-j7-artificial-lighting-and-power.md — Artificial lighting and power
 Artificial lighting and power (NT) → volume-one/part-j7-nt-artificial-lighting-and-power.md — Artificial lighting and power
 Atrium construction → volume-one/part-g3-atrium-construction.md — Atrium construction
+B1D1 → volume-one/b1d1-deemed-to-satisfy-provisions.md — Deemed-to-Satisfy Provisions
 B1D2 → volume-one/b1d2-resistance-to-actions.md — Resistance to actions
 B1D3 → volume-one/b1d3-determination-of-individual-actions.md — Determination of individual actions
 B1D3 (WA) → volume-one/b1d3-wa-determination-of-individual-actions.md — Determination of individual actions
@@ -996,6 +994,7 @@ C1V1 → volume-one/c1v1-fire-spread-between-buildings-on-adjoining-allotments.m
 C1V2 → volume-one/c1v2-fire-spread-between-buildings-on-the-same-allotment.md — Fire spread between buildings on the same allotment
 C1V3 → volume-one/c1v3-fire-spread-via-external-walls.md — Fire spread via external walls
 C1V4 → volume-one/c1v4-fire-safety-verification-method.md — Fire Safety Verification Method
+C2D1 → volume-one/c2d1-deemed-to-satisfy-provisions.md — Deemed-to-Satisfy Provisions
 C2D10 → volume-one/c2d10-non-combustible-building-elements.md — Non-combustible building elements
 C2D11 → volume-one/c2d11-fire-hazard-properties.md — Fire hazard properties
 C2D11 (NSW) → volume-one/c2d11-nsw-fire-hazard-properties.md — Fire hazard properties
@@ -2297,7 +2296,7 @@ United buildings → volume-one/part-a7-united-buildings.md — United buildings
 Visibility in an emergency, exit signs and warning systems → volume-one/part-e4-visibility-in-an-emergency-exit-signs-and-warning-systems.md — Visibility in an emergency, exit signs and warning systems
 Wet areas and overflow protection → volume-one/part-f2-wet-areas-and-overflow-protection.md — Wet areas and overflow protection
 
-## volume-three (431)
+## volume-three (433)
 
 A1G1 → volume-three/a1g1-scope-of-ncc-volume-one.md — Scope of NCC Volume One
 A1G2 → volume-three/a1g2-scope-of-ncc-volume-two.md — Scope of NCC Volume Two
@@ -2337,6 +2336,7 @@ A6G9 → volume-three/a6g9-class-8-buildings.md — Class 8 buildings
 A7G1 → volume-three/a7g1-united-buildings.md — United buildings
 A7G2 → volume-three/a7g2-alterations-in-a-united-building.md — Alterations in a united building
 Application of the NCC in States and Territories → volume-three/part-a3-application-of-the-ncc-in-states-and-territories.md — Application of the NCC in States and Territories
+B1D1 → volume-three/b1d1-deemed-to-satisfy-provisions.md — Deemed-to-Satisfy Provisions
 B1D2 → volume-three/b1d2-water-efficiency.md — Water efficiency
 B1D3 → volume-three/b1d3-general-requirements.md — General requirements
 B1D3 (NSW) → volume-three/b1d3-nsw-general-requirements.md — General requirements
@@ -2492,6 +2492,7 @@ C1V2 → volume-three/c1v2-system-1-common-discharge-design.md — System 1 - Co
 C1V3 → volume-three/c1v3-system-2-common-discharge-design.md — System 2 - Common discharge design
 C1V4 → volume-three/c1v4-system-3-branch-design.md — System 3 - Branch design
 C1V5 → volume-three/c1v5-stack-design.md — Stack design
+C2D1 → volume-three/c2d1-deemed-to-satisfy-provisions.md — Deemed-to-Satisfy Provisions
 C2D2 → volume-three/c2d2-invert-levels.md — Invert levels
 C2D3 → volume-three/c2d3-swimming-pool-drainage.md — Swimming pool drainage
 C2D4 → volume-three/c2d4-general-requirements.md — General requirements

@@ -21,10 +21,6 @@ defined_terms:
 (a) a refrigerant chiller in an air-conditioning system that complies with the energy efficiency ratios in J6D11; or
 (b) packaged air-conditioners, split systems, and variable refrigerant flow air-conditioning equipment that complies with the energy efficiency ratios in J6D12.
 
-**(3)**
-
-**(4)**
-
 ### Table J6D13 — Maximum fan motor power – Cooling towers, closed circuit coolers and evaporative condensers
 
 | Type | Cooling tower maximum fan motor input power (W/kWrej) | Closed circuit cooler maximum fan motor input power (W/kWrej) | Evaporative condenser maximum fan motor input power (W/kWrej) |

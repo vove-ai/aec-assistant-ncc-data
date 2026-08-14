@@ -19,9 +19,3 @@ defined_terms:
 
 (a) where water cooled, have a minimum energy efficiency ratio of 4.0 Wr/Winput power for cooling when tested in accordance with AS/NZS 3823.1.2 at test condition T1, where input power includes both compressor and fan input power; or
 (b) where air cooled, have a minimum energy efficiency ratio of 2.9 Wr/Winput power for cooling when tested in accordance with AS/NZS 3823.1.2 at test condition T1, where input power includes both compressor and fan input power.
-
-**(2)**
-
-**(3)**
-
-**(4)**
