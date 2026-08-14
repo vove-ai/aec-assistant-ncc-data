@@ -116,12 +116,21 @@ export function unitRelPath(unit, { glossaryDir = 'glossary' } = {}) {
   if (!unit?.edition) throw identityError('no edition — the corpus path cannot be built', unit);
   const dir = unit.kind === 'glossary' ? glossaryDir : unit.volume;
   if (!dir) throw identityError('no volume to place the file in', unit);
-  // The build writes files straight from relPath, so the one part of it this module does not
-  // generate character by character is checked before it becomes a path.
-  if (/(^|\/)\.\.(\/|$)|\\|^\/|^[A-Za-z]:/.test(dir)) {
-    throw identityError(`directory ${JSON.stringify(dir)} is not a safe corpus-relative path`, unit);
+  // The build writes files straight from relPath, so both parts of it this module does not
+  // generate character by character are checked before either becomes a path. `edition` gets the
+  // same check as `dir` and for the same reason: it is reader-supplied data interpolated into a
+  // filesystem path, and a check applied to one of two interpolations is not a check.
+  const edition = String(unit.edition);
+  for (const [name, value] of [['edition', edition], ['directory', dir]]) {
+    if (!unsafePathSegment(value)) continue;
+    throw identityError(`${name} ${JSON.stringify(value)} is not a safe corpus-relative path`, unit);
   }
-  return `${unit.edition}/${dir}/${unitFilename(unit)}`;
+  return `${edition}/${dir}/${unitFilename(unit)}`;
+}
+
+/** A path segment the build may not write through: traversal, absolute, or a Windows drive. */
+function unsafePathSegment(value) {
+  return value === '' || /(^|\/)\.\.(\/|$)|\\|^\/|^[A-Za-z]:/.test(value);
 }
 
 /**
@@ -265,12 +274,20 @@ function needsQuote(s) {
     || /^\d{4}-\d{2}-\d{2}/.test(s);   // YAML 1.1 timestamp
 }
 
+/**
+ * A YAML double-quoted scalar escapes exactly three control characters by name — and `needsQuote`
+ * DETECTS the whole C0 range plus DEL. Escaping only \n\r\t therefore let a VT, FF or DEL through
+ * raw inside the quotes, where the YAML spec forbids it: unparseable frontmatter, emitted without
+ * a throw, contradicting this module's own promise that a file is either valid YAML or a build
+ * failure. Everything the detector flags is now escaped, by the spec's `\xNN` form.
+ */
 function yamlScalar(value) {
   const s = String(value ?? '');
   if (!needsQuote(s)) return s;
   const escaped = s
     .replace(/\\/g, '\\\\').replace(/"/g, '\\"')
-    .replace(/\n/g, '\\n').replace(/\r/g, '\\r').replace(/\t/g, '\\t');
+    .replace(/\n/g, '\\n').replace(/\r/g, '\\r').replace(/\t/g, '\\t')
+    .replace(/[\u0000-\u001f\u007f]/g, c => `\\x${c.codePointAt(0).toString(16).padStart(2, '0')}`);
   return `"${escaped}"`;
 }
 

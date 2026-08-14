@@ -24,6 +24,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 import { DOCUMENTS_2025 } from '../src/read-2025.mjs';
+import { DOCUMENTS_2022 } from '../src/read-2022.mjs';
 
 const editions = ['2022', '2025'].filter(e => fs.existsSync(`corpus/${e}`));
 const files = ed => walk(`corpus/${ed}`).filter(f => f.endsWith('.md') && !f.endsWith('INDEX.md'));
@@ -34,10 +35,13 @@ function walk(d) {
 const read = f => fs.readFileSync(f, 'utf8');
 
 /**
- * The documents each edition is made of. Task 10 adds
- * `['2022', DOCUMENTS_2022.map(d => d.key)]` alongside its reader.
+ * The documents each edition is made of. An edition without an entry here can never be shown
+ * complete, so #4's corpus-wide arm would skip forever on a corpus that is in fact complete.
  */
-const EDITION_DOCUMENTS = new Map([['2025', DOCUMENTS_2025.map(d => d.key)]]);
+const EDITION_DOCUMENTS = new Map([
+  ['2025', DOCUMENTS_2025.map(d => d.key)],
+  ['2022', DOCUMENTS_2022.map(d => d.key)],
+]);
 
 /**
  * Which of an edition's documents are absent from `corpus/{edition}`.

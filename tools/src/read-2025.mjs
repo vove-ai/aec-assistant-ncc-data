@@ -13,6 +13,7 @@
 //     prose tag (p, ol, li, table, section, num, …) to a structural set would silence a throw by
 //     stepping over content — the exact silent-loss failure this walker exists to prevent.
 import { DOMParser } from '@xmldom/xmldom';
+import { overviewChildren as overviewChildrenOf } from './normalize.mjs';
 
 export const DOCUMENTS_2025 = [
   { key: 'volume-one', pkg: 'ncc-2025-volume-one-v1.2', cdnKey: 'volume1', citationPrefix: 'NCC 2025 V1', volumeLabel: 'Volume One' },
@@ -87,18 +88,25 @@ const POINTER_TAGS = new Set(['variation', 'intro-part-reference', 'callout-refe
 export const BODY_SKIP_TAGS = new Set([...UNIT_TAGS, ...CONTAINER_TAGS, PAGE_TAG]);
 
 /**
- * The prose a container holds in its own right, in document order — exactly what a
- * container-overview unit renders, and nothing else. Descends through transparent grouping
- * elements so a callout parked under a subtopic still belongs to its Part.
+ * This edition's body vocabulary, carried on every unit this walker emits.
+ *
+ * normalize.mjs used to import `BODY_SKIP_TAGS` from here, which hardcoded the renderer to ONE
+ * edition's element names. The failure direction happened to be safe — an unknown 2022 nested-unit
+ * tag threw rather than bleeding into its parent — but only by luck, and the coupling stopped
+ * being defensible the moment a second reader existed. Each reader now declares its own.
+ */
+export const BODY_TAGS_2025 = {
+  skip: BODY_SKIP_TAGS,
+  ownProse: OWN_PROSE_TAGS,
+  transparent: TRANSPARENT_TAGS,
+};
+
+/**
+ * The prose a container holds in its own right, in document order. Re-exported at this edition's
+ * vocabulary; the rule itself lives in normalize.mjs, which is where a unit's body is decided.
  */
 export function overviewChildren(el) {
-  const out = [];
-  for (let n = el.firstChild; n; n = n.nextSibling) {
-    if (n.nodeType !== 1) continue;
-    if (OWN_PROSE_TAGS.has(n.nodeName)) out.push(n);
-    else if (TRANSPARENT_TAGS.has(n.nodeName)) out.push(...overviewChildren(n));
-  }
-  return out;
+  return overviewChildrenOf(el, BODY_TAGS_2025);
 }
 
 /**
@@ -172,7 +180,7 @@ export function readDocument2025(xmlString, doc, { sections = null } = {}) {
 
   /* -- emitters ---------------------------------------------------------- */
 
-  function push(u) { units.push(u); }
+  function push(u) { units.push({ ...u, bodyTags: BODY_TAGS_2025 }); }
 
   function emitClause(el, ctx) {
     push({

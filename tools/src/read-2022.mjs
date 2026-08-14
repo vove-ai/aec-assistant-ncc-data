@@ -1,0 +1,1139 @@
+// read-2022.mjs — the NCC 2022 walker.
+//
+// Same output as read-2025.mjs (a flat, ordered list of RawUnits) from a source that shares
+// almost no structural assumption with it: 11,331 per-file DITA topics instead of one
+// contents.xml, CALS tables instead of HTML ones, a publication map instead of an enclosing
+// <ncc-section>, state variations in separate FILES instead of inline, and figures joined by @id.
+//
+// THE ONE FACT THAT DECIDES WHETHER THIS CORPUS STATES THE LAW (docs/content-model-2022.md §1):
+// the four 2022 packages are DUAL-STATE EDITORIAL FILES. They carry NCC 2022 as their base layer
+// with the NCC 2025 draft on top as tracked changes, by three separate mechanisms. `textContent`
+// yields a document that is NEITHER edition — clause IDs like `B1P43` (base `B1P4` + accepted
+// `B1P3`) that exist nowhere. Everything below is read in the BASE view, and `applyBaseView`
+// materialises it in the DOM once per file so that nothing downstream — membership, the figure
+// join, the renderer — has to remember to ask.
+//
+// A reader that gets this wrong produces a corpus that is wrong SELF-CONSISTENTLY. No internal
+// test catches that, which is why the base view has its own regression tests against markup
+// copied out of the source, and why the parity numbers in read-2022.test.mjs are transcribed from
+// a document that measured them rather than derived from this module's own output.
+//
+// Design rules, in priority order:
+//  1. Recursion, not a container whitelist (read-2025.mjs rule 1 — it cost that walker three
+//     corrections and the lesson transfers unchanged).
+//  2. Fail loud. Every element the walker reaches is classified by one of the sets below; an
+//     element in none of them throws, naming the element and its path.
+//  3. Prose is never walked into. A unit's subtree is handed over whole via `node`.
+//  4. Where the source ships something broken — four ERROR_IN_RESOLVING_URI conrefs, one figure
+//     pointer whose id joins nothing — it is RECORDED in `diagnostics`, never silently dropped
+//     and never confused with a defect of ours.
+import fs from 'node:fs';
+import path from 'node:path';
+import { DOMParser } from '@xmldom/xmldom';
+
+export const DOCUMENTS_2022 = [
+  { key: 'volume-one', pkg: 'ncc-2022-volume-one', cdnKey: 'volume1', citationPrefix: 'NCC 2022 V1', volumeLabel: 'Volume One' },
+  { key: 'volume-two', pkg: 'ncc-2022-volume-two', cdnKey: 'volume2', citationPrefix: 'NCC 2022 V2', volumeLabel: 'Volume Two' },
+  { key: 'volume-three', pkg: 'ncc-2022-volume-three', cdnKey: 'volume3', citationPrefix: 'NCC 2022 V3', volumeLabel: 'Volume Three' },
+  { key: 'housing-provisions', pkg: 'ncc-2022-housing-provisions', cdnKey: 'housing', citationPrefix: 'NCC 2022 HP', volumeLabel: 'Housing Provisions' },
+];
+
+/* ===========================================================================
+ * The base view (§1.1) — three tracked-change mechanisms, not one.
+ * ======================================================================== */
+
+const TRACKCHANGES_NS = 'urn:xpressauthor:trackchanges';
+const localName = n => (n.includes(':') ? n.slice(n.indexOf(':') + 1) : n);
+
+/**
+ * The tracked-change mark on ONE element, or null.
+ *
+ * The complete predicate, and every clause of it is load-bearing (§11):
+ *
+ *   local name `type`, in the trackchanges namespace OR IN NO NAMESPACE, AND value in
+ *   {insert, delete}.
+ *
+ *  * `xt:` and `ns0:` both bind to the trackchanges namespace in the SAME package, so matching a
+ *    prefix misses one of them.
+ *  * The BARE `type=` form has `namespaceURI === null` — XML attributes do not inherit a default
+ *    namespace — so "in the trackchanges namespace" misses 355/301/358/476 per package, and they
+ *    sit on `table-reference`, `clause` and `image-reference`, i.e. on WHOLE UNITS.
+ *  * Without the value clause the predicate matches 25,714 attributes in volume-one of which only
+ *    8,299 are marks: 17,415 false positives, every one an `xref/@type` — which would delete
+ *    every cross-reference in the volume from the base view.
+ */
+function markOf(el) {
+  const attrs = el.attributes;
+  if (!attrs) return null;
+  let type = null;
+  let dateTime = '';
+  for (let i = 0; i < attrs.length; i++) {
+    const a = attrs[i];
+    const ln = localName(a.nodeName);
+    if (ln === 'type' && (a.namespaceURI === TRACKCHANGES_NS || a.namespaceURI === null)
+      && (a.value === 'insert' || a.value === 'delete')) type = a.value;
+    else if (ln === 'dateTime') dateTime = a.value;
+  }
+  return type ? { type, year: editYear(dateTime, el) } : null;
+}
+
+/**
+ * Which editorial cycle an edit belongs to. Measured across all four packages: 2020, 2021, 2022,
+ * 2024, 2025 — the two cycles are cleanly separated and nothing lands between them. A date that
+ * does land between them, or a mark with no date at all, is an edit this rule cannot classify;
+ * guessing which edition it belongs to is exactly the silent corruption this module exists to
+ * prevent, so it throws.
+ */
+function editYear(dateTime, el) {
+  const y = Number(String(dateTime).slice(0, 4));
+  if (!Number.isFinite(y) || y === 0) {
+    throw new Error(`read-2022: tracked-change mark on <${el.nodeName}> carries no dateTime — `
+      + 'its editorial cycle cannot be determined, and guessing decides which edition the text belongs to');
+  }
+  if (y >= 2023 && y < 2024) {
+    throw new Error(`read-2022: tracked-change mark on <${el.nodeName}> dated ${y} falls between the `
+      + 'NCC 2022 cycle (<=2022) and the NCC 2025 draft cycle (>=2024) — classify it before reading it');
+  }
+  return y;
+}
+
+const DRAFT_CYCLE_FROM = 2024;
+
+/**
+ * Does this element survive into the NCC 2022 base view?
+ *
+ * The rule is PER DIRECTION, not "keep everything dated <= 2022" (§1.1):
+ *
+ *   | mark   | dated <=2022 (NCC 2022 cycle)          | dated >=2024 (NCC 2025 draft) |
+ *   | insert | KEEP — already accepted into NCC 2022  | DROP                          |
+ *   | delete | DROP — removed before NCC 2022 shipped | KEEP                          |
+ *
+ * <=2022 deletes are vanishingly rare (1-2 per package) so getting this wrong costs almost
+ * nothing — but a reader implementing "<=2022 = keep" in both directions has written the wrong
+ * rule, and would go on writing it as the source changes.
+ */
+export function baseViewKeeps(el) {
+  const m = markOf(el);
+  if (!m) return true;
+  return m.type === 'insert' ? m.year < DRAFT_CYCLE_FROM : m.year >= DRAFT_CYCLE_FROM;
+}
+
+/**
+ * Rewrite a parsed document IN PLACE into its NCC 2022 base view.
+ *
+ * Doing it as a DOM transform, once per file, rather than as a filter at each read site, is what
+ * makes the rest of this module — and the whole of normalize.mjs — safe by construction: after
+ * this call there is no 2025 draft text left to accidentally read, and `xt:insText`/`xt:delText`
+ * never reach the renderer (§9.1).
+ *
+ * Three mechanisms, in the order they must be applied:
+ *
+ *  1. ELEMENT-LEVEL MARKS (§1.1 mechanism 3). Drop what `baseViewKeeps` rejects. Sibling-pair
+ *     selection (§6.1) falls out of this for free: where a `table-reference` holds an inserted and
+ *     a deleted `<table>`, removing the inserted one leaves the 2022 table — and DOCUMENT ORDER IS
+ *     NOT THE SELECTOR, the insert being first in 5 of the 9 multi-table wrappers.
+ *  2. MILESTONE PAIRS (§1.1 mechanism 1). `xt:insText`/`xt:delText` as EMPTY, self-closing
+ *     elements bracketing a run of sibling text. The ranges CROSS ELEMENT BOUNDARIES, so they are
+ *     tracked with a depth counter over a document-order traversal, never by recursing into the
+ *     element. Treating them as containers is the trap that makes the whole file look like clean
+ *     2022: they have no text content, so base and accepted come out identical.
+ *  3. CONTAINER FORM (§1.1 mechanism 2). The same element names WITH text content and no action:
+ *     `delText` is unwrapped (it is the 2022 text), `insText` is removed.
+ *
+ * One start/end id per package is unbalanced, so the counters clamp at zero rather than assert.
+ */
+export function applyBaseView(doc) {
+  const root = doc.documentElement;
+  if (!root) return doc;
+
+  const drop = [];
+  const visit = el => {
+    for (let c = el.firstChild; c; c = c.nextSibling) {
+      if (c.nodeType !== 1) continue;
+      if (baseViewKeeps(c)) visit(c); else drop.push(c);
+    }
+  };
+  visit(root);
+  for (const el of drop) el.parentNode?.removeChild(el);
+
+  let inserted = 0;
+  const remove = [];
+  const unwrap = [];
+  const walk = node => {
+    for (let c = node.firstChild; c; c = c.nextSibling) {
+      if (c.nodeType === 3) { if (inserted > 0) remove.push(c); continue; }
+      if (c.nodeType !== 1) continue;
+      const ln = localName(c.nodeName);
+      if (ln !== 'insText' && ln !== 'delText') { walk(c); continue; }
+      const action = c.getAttribute('xt:action') || c.getAttribute('action') || '';
+      if (action === 'start') {
+        if (ln === 'insText') inserted++;
+        remove.push(c);
+      } else if (action === 'end') {
+        if (ln === 'insText') inserted = Math.max(0, inserted - 1);
+        remove.push(c);
+      } else if (ln === 'insText') {
+        remove.push(c);                       // container form: the 2025 draft's words
+      } else {
+        unwrap.push(c); walk(c);              // container form: the NCC 2022 words
+      }
+    }
+  };
+  walk(root);
+  for (const n of remove) n.parentNode?.removeChild(n);
+  for (const el of unwrap) {
+    const parent = el.parentNode;
+    if (!parent) continue;
+    while (el.firstChild) parent.insertBefore(el.firstChild, el);
+    parent.removeChild(el);
+  }
+  return doc;
+}
+
+/**
+ * The ACCEPTED (NCC 2025 draft) reading of one element's text, taken BEFORE `applyBaseView`.
+ *
+ * Needed for exactly two jobs, both of them joins rather than content: the state-variation
+ * identity join, which matches on the host's base-OR-accepted designation (§5.3.1), and the
+ * membership census that reproduces §1.3. No accepted text ever reaches a unit.
+ */
+function acceptedText(el) {
+  let out = '';
+  let deleted = 0;
+  const visit = node => {
+    for (let c = node.firstChild; c; c = c.nextSibling) {
+      if (c.nodeType === 3) { if (deleted === 0) out += c.data; continue; }
+      if (c.nodeType !== 1) continue;
+      const ln = localName(c.nodeName);
+      if (ln === 'insText' || ln === 'delText') {
+        const action = c.getAttribute('xt:action') || c.getAttribute('action') || '';
+        if (action === 'start') { if (ln === 'delText') deleted++; continue; }
+        if (action === 'end') { if (ln === 'delText') deleted = Math.max(0, deleted - 1); continue; }
+        if (ln === 'insText') visit(c);
+        continue;
+      }
+      if (ln === 'placeholder') continue;
+      const m = markOf(c);
+      if (m && m.type === 'delete' && m.year >= DRAFT_CYCLE_FROM) continue;
+      visit(c);
+    }
+  };
+  visit(el);
+  return collapse(out);
+}
+
+/* ===========================================================================
+ * Element classification for the map walk.
+ * ======================================================================== */
+
+const ROOT_TAGS = new Set(['abcb-map']);          // FlattenedFile.xml, and the 3 nested glossary maps
+const SECTION_TAGS = new Set([
+  'topicset',      // 37 — the Section: @section-num, @navtitle and (17 of them) @summary
+  'topichead',     // 11 — the untitled front-matter grouping (Preface, Introduction, Footnote)
+]);
+const CONTAINER_TAGS = new Set([
+  'part',          // 339 — ncc-part and standard-part; num and title are CHILD ELEMENTS
+  'specification', // 174 — a sibling of part, not a child of it
+]);
+const TRANSPARENT_TAGS = new Set([
+  'subtopic',      // 904 — groups clauserefs inside a part, exactly as in 2025
+]);
+// 66 under specification. Neither transparent nor purely prose: it is the Specification's OWN
+// overview text AND the home of 310 clauserefs, so it is rendered by the overview unit and walked
+// for its clauserefs — and for nothing else, since everything else in it is that same prose.
+const SECTION_TAG = 'section';
+const UNIT_TAGS = new Set([
+  'page',              //  78 — carried INLINE in the map, not conref'd
+  'abcb-glossentry',   // 543 per package, inline in the three nested glossary maps
+]);
+const CLAUSE_POINTER_TAG = 'clauseref';   // 881 + 4514 + 310 — its <clause conref> names the file
+const OWN_PROSE_TAGS = new Set([
+  'intro-part',    // 353 under part
+  'callout',       // 182 under part, 44 under subtopic — explanatory boxes attached to the Part
+]);
+const METADATA_TAGS = new Set([
+  'title',         // read via childTitle()
+  'num',           // a container's designation; read as a child element, never an attribute
+]);
+const POINTER_TAGS = new Set([
+  'glossref',      // 2188 — a map-only pointer at a glossary entry that is ALSO inlined beside it
+]);
+const VARIATION_TAG = 'part-variation';   // 114 elements / 73 identities, handled by its container
+// The two elements that hold a MathType equation. Their <image> child is a raster fallback with no
+// href, never a figure.
+const EQUATION_TAGS = new Set(['equation-inline', 'equation-block']);
+
+/**
+ * Children of a unit's `node` that its BODY does not render: the ones belonging to another unit,
+ * plus this unit's own identity (which emit.mjs already puts in the frontmatter and the H1).
+ *
+ * normalize.mjs takes this off the unit rather than importing one edition's vocabulary, because
+ * the two editions do not share it: 2022's `clauseref`, `subtopic` and `meta` mean nothing in
+ * 2025, and 2025's `content` and `spec-topic` mean nothing here.
+ */
+export const BODY_TAGS_2022 = {
+  skip: new Set([
+    'clause', 'clause-variation', 'clauseref',   // other units, or pointers at them
+    'part', 'part-variation', 'specification',   // containers
+    'subtopic', 'topicset', 'topichead', 'abcb-map', 'abcb-glossentry', 'page', 'glossref',
+    'num', 'archive-num', 'meta',                // this unit's identity and applicability metadata
+  ]),
+  // A container's own prose. `section` is NOT here: a specification's <section> holds clauserefs
+  // as well as prose, so it is rendered as a block (which skips them) rather than flattened.
+  ownProse: new Set(['intro-part', 'callout', 'section']),
+  transparent: new Set(['subtopic']),
+};
+
+/** The eight jurisdictions the corpus uses. */
+const STATES = new Set(['NSW', 'VIC', 'QLD', 'SA', 'WA', 'TAS', 'NT', 'ACT']);
+
+/**
+ * State files that carry a jurisdiction suffix in their NAME and no root `@variation` (§5.1).
+ *
+ * Enumerated rather than inferred, and enumerated for ALL FOUR packages rather than for the one
+ * that surfaced them: the list is not the same in every package (volume-one and Housing
+ * Provisions have four, volume-two five, volume-three seven), so building it from volume-one
+ * alone mis-files four clauses as national elsewhere. The walker derives the state from the
+ * filename anyway and uses this list as the GUARD: a file that gains a state suffix without
+ * appearing here is a new case to look at, not something to trust silently.
+ */
+const STATE_FILES_WITHOUT_VARIATION = new Set([
+  'B1D4-determination-structural-resistance-materials-forms-construction-WA.xml',
+  'B1P5-pressure-TAS.xml',
+  'J8D4-spa-pool-heating-and-pumping-NSW.xml',
+  'table-10-7-1-required-rw-and-sound-impact-levels-for-separating-walls-NT.xml',
+  'H3D5-fire-separation-of-garage-top-dwellings-NSW.xml',
+  'B2D6-temperature-control-devices-TAS.xml',
+  'B2D9-general-requirements-SA.xml',
+  'B2P9-pressure-TAS.xml',
+]);
+
+/** `document-type` on a nested glossary map -> the `category` weblinks.mjs routes web_url on. */
+const GLOSSARY_CATEGORIES = new Map([
+  ['Glossary', 'glossary'],
+  ['Abbreviation', 'abbreviation'],
+  ['Symbols', 'symbols'],
+]);
+
+/* ===========================================================================
+ * Small helpers.
+ * ======================================================================== */
+
+const byCodepoint = (a, b) => (a < b ? -1 : a > b ? 1 : 0);
+const collapse = s => String(s ?? '').replace(/\s+/g, ' ').trim();
+const elementChildren = el => { const o = []; for (let c = el.firstChild; c; c = c.nextSibling) if (c.nodeType === 1) o.push(c); return o; };
+const childEl = (el, tag) => { for (let c = el.firstChild; c; c = c.nextSibling) if (c.nodeType === 1 && c.nodeName === tag) return c; return null; };
+const childText = (el, tag) => collapse(childEl(el, tag)?.textContent ?? '');
+const attr = (el, name) => { const v = el.getAttribute?.(name); return v === null || v === undefined || v === '' ? null : v; };
+
+/** Recursive enumeration — `XMLs/` is NOT flat. Three glossary terms contain a literal `/` and
+ *  ship as DIRECTORIES (`XMLs/glossary-CO2-e/m2.hr.xml`), so a flat readdir loses three entries
+ *  per package and throws EISDIR if it does not filter. Sorted by codepoint, never localeCompare. */
+function walkFiles(dir, rel = '') {
+  if (!fs.existsSync(dir)) return [];
+  const out = [];
+  for (const e of fs.readdirSync(dir, { withFileTypes: true })) {
+    const child = rel ? `${rel}/${e.name}` : e.name;
+    if (e.isDirectory()) out.push(...walkFiles(path.join(dir, e.name), child));
+    else out.push(child);
+  }
+  return out.sort(byCodepoint);
+}
+
+const XML_PARSER = { onError: () => {} };   // @xmldom/xmldom 0.9 rejects the old errorHandler object
+
+/** Filenames carry spaces, dots, commas, en-dashes and parentheses. Fold them all, and case, so
+ *  the state-variation and figure joins compare designations rather than typography (§5.3.1, §6). */
+const normStem = s => String(s).replace(/\.[^.]*$/, '').toLowerCase().replace(/[.\-_ ]+/g, '-').replace(/^-+|-+$/g, '');
+const normId = s => String(s).trim().toLowerCase().replace(/[.\-_ ]+/g, '-').replace(/^-+|-+$/g, '');
+
+/** `Section A` -> A (section) · `Schedule 1` -> 1 (schedule) · `2` -> 2 (other), matching the
+ *  site's own path tokens (`/a-governing-requirements`, `/1-definitions`, `/2-structure`). */
+function sectionOf(sectionNum) {
+  const raw = collapse(sectionNum ?? '');
+  if (!raw) return { num: '', type: 'other' };
+  const m = /^(Section|Schedule)\s+(.+)$/i.exec(raw);
+  if (!m) return { num: raw, type: 'other' };
+  return { num: m[2], type: m[1].toLowerCase() === 'schedule' ? 'schedule' : 'section' };
+}
+
+/** The jurisdiction a filename declares, or null. Deliberately strict: a separator is required,
+ *  because a rule loose enough to catch `…premisesTAS.xml` also catches
+ *  `table-SA-1-farm-building-categories….xml`, whose "SA" is part of the table number. */
+function stateFromFilename(file) {
+  const m = /[-_ ]([A-Za-z]{2,3})$/.exec(file.replace(/\.[^.]*$/, ''));
+  const tok = m ? m[1].toUpperCase() : null;
+  return tok && STATES.has(tok) ? tok : null;
+}
+
+/* ===========================================================================
+ * The reader.
+ * ======================================================================== */
+
+/**
+ * @param {string} pkgDir  an extracted package root, holding `XMLs/` and `Images/` (both
+ *   capitalised — 2025 uses lowercase, and a Linux CI runner does not forgive the difference)
+ * @param {object} doc     one entry of DOCUMENTS_2022
+ * @param {{sections?: string[]|null, diagnostics?: object|null}} [opts]
+ *   `sections` slices on the derived section num, exactly as read-2025.mjs does.
+ *   `diagnostics`, when an object is passed, is FILLED IN with the censuses this reader's parity
+ *   tests check against docs/content-model-2022.md, plus the source's own broken references. It
+ *   is an out-parameter rather than part of the return value so the RawUnit[] contract stays
+ *   identical to read-2025.mjs's.
+ * @returns {Array<object>} RawUnits in document order
+ */
+export function readPackage2022(pkgDir, doc, { sections = null, diagnostics = null } = {}) {
+  const xmlDir = path.join(pkgDir, 'XMLs');
+  const imgDir = path.join(pkgDir, 'Images');
+  const files = walkFiles(xmlDir).filter(f => f.toLowerCase().endsWith('.xml'));
+  const images = walkFiles(imgDir);
+  if (!files.includes('FlattenedFile.xml')) {
+    throw new Error(`read-2022 [${doc.key}]: ${xmlDir}/FlattenedFile.xml is missing — it is the publication's spine`);
+  }
+
+  const dg = {
+    roots: {}, membership: { clauses: 0, unchanged: 0, renumbered: 0, only2022: 0, only2025: 0 },
+    map: { mapped: 0, insertOnly: 0, insertOnlyDuplicates: 0, mappedNo2022: 0, duplicateConrefs: 0 },
+    clauseVariations: { del: 0, delText: 0, repl: 0, target2025: 0 },
+    partVariations: { elements: 0, identities: 0 },
+    figures: { distinct: 0, baseEmptyWrappers: 0 },
+    glossary: { entries: 0, only2025: 0, national: 0 },
+    // Emission, as opposed to the censuses above: what this reader actually produced. The two
+    // populations differ on purpose — the censuses cover the whole package, which is what
+    // docs/content-model-2022.md measured, while emission covers only what the map reaches.
+    stateClauseUnits: { del: 0, repl: 0 },
+    brokenConrefs: [], unjoinedPointers: [], uncategorisedGlossary: [], unreferencedImages: 0,
+    pages: 0, overviews: 0, glossrefs: 0,
+  };
+
+  /* -- pass 1: one parse per file, facts kept, DOM discarded ---------------- */
+
+  const facts = new Map();
+  const wrapperById = new Map();
+  const byStem = new Map();
+  const partsByNum = new Map();
+  const clauseVariationSites = [];
+  const partVariationSites = [];
+  for (const file of files) {
+    const dom = new DOMParser(XML_PARSER).parseFromString(fs.readFileSync(path.join(xmlDir, file), 'utf8'), 'text/xml');
+    const root = dom?.documentElement;
+    if (!root) throw new Error(`read-2022 [${doc.key}]: ${file} did not parse to a document element`);
+    const kind = root.nodeName === 'part' ? `part/${root.getAttribute('outputclass') ?? ''}` : root.nodeName;
+    dg.roots[kind] = (dg.roots[kind] ?? 0) + 1;
+
+    const idEl = childEl(root, 'sptc') ?? childEl(root, 'num');
+    const accepted = idEl ? acceptedText(idEl) : '';
+    applyBaseView(dom);
+    const baseIdEl = childEl(root, 'sptc') ?? childEl(root, 'num');
+    const f = {
+      file,
+      root: root.nodeName,
+      id: attr(root, 'id'),
+      variation: attr(root, 'variation'),
+      baseId: baseIdEl ? collapse(baseIdEl.textContent) : '',
+      acceptedId: accepted,
+      baseTerm: collapse(childEl(root, 'glossterm')?.textContent ?? ''),
+    };
+    facts.set(file, f);
+
+    if (root.nodeName === 'clause') {
+      const m = dg.membership;
+      m.clauses++;
+      if (!f.baseId) m.only2025++;
+      else if (!f.acceptedId) m.only2022++;
+      else if (f.baseId === f.acceptedId) m.unchanged++;
+      else m.renumbered++;
+    }
+    if (root.nodeName === 'image-reference' || root.nodeName === 'table-reference') {
+      if (f.id) wrapperById.set(f.id, file);
+    }
+    if (root.nodeName === 'part' || root.nodeName === 'specification') {
+      if (f.baseId) { if (!partsByNum.has(f.baseId)) partsByNum.set(f.baseId, []); partsByNum.get(f.baseId).push(file); }
+    }
+    const stem = normStem(file);
+    if (!byStem.has(stem)) byStem.set(stem, []);
+    byStem.get(stem).push(file);
+
+    // The variation CENSUS is taken over the whole package, which is what
+    // docs/content-model-2022.md §5.3/§5.4 measured; EMISSION visits only the clauses and Parts
+    // the publication map reaches. The two populations are deliberately different numbers, and
+    // keeping both is what lets the parity tests check this reader against that document rather
+    // than against itself.
+    (function census(el, partNum) {
+      const num = (el.nodeName === 'part' || el.nodeName === 'specification')
+        ? collapse(childEl(el, 'num')?.textContent ?? '') : partNum;
+      for (const c of elementChildren(el)) {
+        if (c.nodeName === 'clause-variation') { clauseVariationSites.push({ file, el: c }); continue; }
+        if (c.nodeName === VARIATION_TAG) { partVariationSites.push({ num, el: c }); continue; }
+        census(c, num);
+      }
+    })(root, null);
+
+    // §5.1: `@variation` is authoritative where present and never disagrees with the filename
+    // (584/584 in volume-one). Where it is absent the filename is trusted only for the enumerated
+    // exceptions; anything else is a new shape and must be looked at rather than guessed.
+    const named = stateFromFilename(file);
+    if (named && f.variation && named !== f.variation.toUpperCase()) {
+      throw new Error(`read-2022 [${doc.key}]: ${file} declares variation="${f.variation}" but its name says ${named}`);
+    }
+    if (named && !f.variation && !STATE_FILES_WITHOUT_VARIATION.has(path.posix.basename(file))) {
+      throw new Error(`read-2022 [${doc.key}]: ${file} has a ${named} filename suffix and no root @variation. `
+        + 'Add it to STATE_FILES_WITHOUT_VARIATION only after establishing that it really is state text.');
+    }
+  }
+  const stemKeys = [...byStem.keys()].sort(byCodepoint);
+
+  /* -- pass 2: parse on demand, base-viewed, and keep what a unit points at -- */
+
+  const loaded = new Map();
+  const load = file => {
+    if (!loaded.has(file)) {
+      const dom = new DOMParser(XML_PARSER).parseFromString(fs.readFileSync(path.join(xmlDir, file), 'utf8'), 'text/xml');
+      applyBaseView(dom);
+      loaded.set(file, dom);
+    }
+    return loaded.get(file);
+  };
+
+  /* -- the figure join (§6) ------------------------------------------------- */
+
+  const imageByLowerName = new Map();
+  const imageByLowerStem = new Map();
+  const imageByNormStem = new Map();
+  for (const im of images) {
+    imageByLowerName.set(im.toLowerCase(), im);
+    const stem = im.replace(/\.[^.]*$/, '').toLowerCase();
+    if (!imageByLowerStem.has(stem)) imageByLowerStem.set(stem, im);
+    const n = normStem(im);
+    if (!imageByNormStem.has(n)) imageByNormStem.set(n, im);
+  }
+  const usedImages = new Set();
+
+  /**
+   * `Images/` filename for one wrapper. The `<image href>` is a publishing-session path, an
+   * `ERROR_IN_RESOLVING_URI:` string, or an absolute `C:\Users\…\Quark\…` authoring path leaked
+   * into the published XML — so the join is on NAMES, in five rules applied in order (§6, §6.1).
+   * All five are needed: without rule 1 folding the case of the WHOLE stem the counts come out
+   * one short in every package, rule 4 exists for exactly one file, and rule 5 for exactly one.
+   */
+  function resolveImageFile(wrapperFile, href) {
+    const basename = String(href).split(/[\\/]/).pop();
+    // An image-reference carried INLINE in the map (the four cover pages) has no wrapper file to
+    // take a stem from, and its href really is a relative path — `../Images/cover-front-vol1.pdf`.
+    if (!wrapperFile) {
+      return imageByLowerName.get(basename.toLowerCase())
+        ?? imageByLowerName.get(`image-${basename}`.toLowerCase())
+        ?? null;
+    }
+    const stem = path.posix.basename(wrapperFile).replace(/\.[^.]*$/, '');
+    const hit = imageByLowerStem.get(stem.toLowerCase())                                     // 1
+      ?? imageByLowerName.get(`image-${basename}`.toLowerCase())                              // 2
+      ?? imageByLowerStem.get(stem.replace(/^image-/, '').toLowerCase())                      // 3
+      ?? imageByNormStem.get(normStem(stem));                                                 // 4
+    if (hit) return hit;
+    const token = stem.replace(/^image-/, '').split('-')[0];                                  // 5
+    const prefix = `${normId(`image-${token}`)}-`;
+    const byToken = images.filter(im => normStem(im).startsWith(prefix)).sort(byCodepoint);
+    return byToken[0] ?? null;
+  }
+
+  /**
+   * normalize.mjs reads `src`, which 2022 does not use: `href` is a publishing-session path, an
+   * `ERROR_IN_RESOLVING_URI:` string or a leaked absolute `C:\Users\…\Quark\…` authoring path.
+   * The CDN key is the DISK name the rules above resolve, so it is written here.
+   */
+  function setImageSrc(img, wrapperFile) {
+    if (img.getAttribute('src')) return;
+    const disk = resolveImageFile(wrapperFile, img.getAttribute('href') ?? '');
+    if (!disk) {
+      throw new Error(`read-2022 [${doc.key}]: <image href=${JSON.stringify(img.getAttribute('href'))}>`
+        + `${wrapperFile ? ` in ${wrapperFile}` : ' carried inline in the map'} names no file in Images/ — `
+        + 'the name rules in resolveImageFile did not reach it');
+    }
+    usedImages.add(disk);
+    img.setAttribute('src', path.posix.basename(disk));
+  }
+
+  /**
+   * Replace every `<image-reference conref>` / `<table-reference conref>` pointer inside a unit's
+   * subtree with the wrapper it names, so the renderer sees one tree.
+   *
+   * The `conref` is NOT the join key — it is a publishing-session document path that matches
+   * nothing on disk, and resolving on it yields 0 of 231. THE JOIN KEY IS `@id`: the inline
+   * pointer's id equals the wrapper file's ROOT id (§6).
+   *
+   * A wrapper with no base-view `<image>`/`<table>` is not an error: 11 figure wrappers and 32-34
+   * table wrappers per package are 2025 additions whose only child is an insert, and 10 of the
+   * table ones are cited by live 2022 clauses (§6.2). The citation is dropped and recorded — the
+   * alternative is publishing a 2025 draft table as NCC 2022 law.
+   */
+  function splice(node, homeFile = null) {
+    for (const el of elementChildren(node)) {
+      // Take the OUTER of a nested `image > image` pair (260 of them): an outer vector reference
+      // with a raster fallback inside it. Descending would resolve — and count — the fallback too.
+      if (el.nodeName === 'image') {
+        // An <image> with NO href is not a figure at all: it is MathType's raster fallback,
+        // carried as base64 in the element's own text, and it sits only inside an equation (230 in
+        // volume-one, every one under equation-inline or equation-block). normalize.mjs drops it,
+        // exactly as it drops 2025's <img src="">. Anywhere else, a figure with no href is a real
+        // unresolved reference and setImageSrc throws.
+        if (!attr(el, 'href') && EQUATION_TAGS.has(node.nodeName)) continue;
+        setImageSrc(el, homeFile);
+        continue;
+      }
+      const isPointer = (el.nodeName === 'image-reference' || el.nodeName === 'table-reference') && attr(el, 'conref');
+      if (!isPointer) { splice(el, homeFile); continue; }
+      const conref = el.getAttribute('conref');
+      const target = wrapperById.get(attr(el, 'id') ?? '') ?? (facts.has(conref) ? conref : null);
+      if (!target) {
+        // Shipped broken: one Housing Provisions figure pointer carries an
+        // `ERROR_IN_RESOLVING_URI:` conref whose @id matches no wrapper (§6).
+        dg.unjoinedPointers.push(`${el.nodeName} conref=${conref}`);
+        node.removeChild(el);
+        continue;
+      }
+      const wrapper = load(target).documentElement;
+      const payload = el.nodeName === 'image-reference' ? 'image' : 'table';
+      if (!childEl(wrapper, payload)) {
+        node.removeChild(el);                     // no NCC 2022 content behind this citation
+        continue;
+      }
+      const clone = wrapper.cloneNode(true);
+      splice(clone, target);
+      node.replaceChild(clone, el);
+    }
+  }
+
+  /* -- the state-variation join (§5.3.1) ------------------------------------ */
+
+  /**
+   * The file holding a REPLACE variation's text, or null.
+   *
+   * Two stages, and both are needed to reach 432/432 and 47/47:
+   *  (a) the case-folded sibling stem, with `.`/`-`/`_`/SPACE all normalised — `13-2-3-roofs and
+   *      ceilings.xml` -> `13-2-3-Roofs-and-ceilings-NSW.xml`;
+   *  (b) an identity join on the host's BASE-or-accepted designation, because a renumbered
+   *      clause's state file is named with the BASE (2022) number even when the national file's
+   *      name carries the 2025 one — `B1P6-pressure.xml` (base sptc B1P5) -> `B1P5-pressure-TAS.xml`.
+   * `@variation` is deliberately NOT part of the join: it is absent on 4-7 state files per package.
+   */
+  function resolveStateFile(hostFile, identities, state) {
+    const suffix = `-${state.toLowerCase()}`;
+    if (hostFile) {
+      const direct = byStem.get(normStem(path.posix.basename(hostFile)) + suffix);
+      if (direct) return direct[0];
+    }
+    for (const identity of identities) {
+      if (!identity) continue;
+      const prefix = `${normId(identity)}-`;
+      const hits = stemKeys.filter(k => k.startsWith(prefix) && k.endsWith(suffix));
+      if (hits.length) return byStem.get(hits[0])[0];
+    }
+    return null;
+  }
+
+  /** A state file whose own base designation is empty is a 2025-only file: the provision is not in
+   *  NCC 2022 even though the file exists. 11 pointers corpus-wide land here (§5.3.2). */
+  const targetIsNcc2022 = file => Boolean(facts.get(file)?.baseId);
+
+  /* -- the whole-package variation census (§5.3, §5.3.2, §5.4) --------------- */
+
+  for (const { file, el } of clauseVariationSites) {
+    const state = (attr(el, 'variation') ?? '').toUpperCase();
+    if (attr(el, 'variation-type') === 'DELETE') {
+      dg.clauseVariations.del++;
+      if (attr(el, 'deleted-text')) dg.clauseVariations.delText++;
+      continue;
+    }
+    dg.clauseVariations.repl++;
+    const host = facts.get(file);
+    const target = resolveStateFile(file, [host?.baseId, host?.acceptedId], state);
+    if (!target) {
+      throw new Error(`read-2022 [${doc.key}]: ${file} declares a ${state} REPLACE whose file cannot be found. `
+        + 'Measured: 432/432 clause-variation pointers resolve, so this is a join that no longer fits the data.');
+    }
+    if (!targetIsNcc2022(target)) dg.clauseVariations.target2025++;
+  }
+  {
+    const identities = new Set();
+    for (const { num, el } of partVariationSites) {
+      dg.partVariations.elements++;
+      identities.add(`${num}|${attr(el, 'variation')}|${attr(el, 'variation-type')}`);
+    }
+    dg.partVariations.identities = identities.size;
+  }
+
+  /* -- units ---------------------------------------------------------------- */
+
+  const units = [];
+  const emit = u => { units.push({ edition: '2022', volume: doc.key, bodyTags: BODY_TAGS_2022, ...u }); };
+  const inScope = ctx => !sections || ctx.sectionNum === '' || sections.includes(ctx.sectionNum);
+
+  const pickCtx = c => ({
+    sectionNum: c.sectionNum, sectionType: c.sectionType,
+    containerKind: c.containerKind, containerNum: c.containerNum, containerTitle: c.containerTitle,
+  });
+
+  function stateOf(file) {
+    const f = facts.get(file);
+    return f?.variation ? f.variation.toUpperCase() : stateFromFilename(file);
+  }
+
+  /** Building classes and climate zones live in `<meta><facet …/></meta>`, one facet per value.
+   *  `clause/@building` — the 2025 spelling — is absent from every 2022 clause (0 occurrences),
+   *  so a 2025-shaped read returns null on all of them (§10). */
+  function facetsOf(root) {
+    const meta = childEl(root, 'meta');
+    const building = [];
+    const climate = [];
+    if (meta) {
+      for (const f of elementChildren(meta)) {
+        if (f.nodeName !== 'facet') continue;
+        const b = attr(f, 'building'); if (b && !building.includes(b)) building.push(b);
+        const c = attr(f, 'climate'); if (c && !climate.includes(c)) climate.push(c);
+      }
+    }
+    return { building: building.join(', ') || null, climate: climate.join(', ') || null };
+  }
+
+  /** `<archive-num><placeholder outputclass="placeholder">[ARCHIVE]</placeholder></archive-num>`
+   *  is an authoring stub, not a superseded reference — and `applyBaseView` leaves it in place, so
+   *  it is dropped here rather than shipped as `supersedes: "[ARCHIVE]"` on 16 clauses (§10). */
+  function supersedesOf(root) {
+    const el = childEl(root, 'archive-num');
+    if (!el || childEl(el, 'placeholder')) return null;
+    return collapse(el.textContent) || null;
+  }
+
+  const emittedClauseFiles = new Set();
+  const seenGlossaryIds = new Set();
+  const categoryByTerm = new Map();
+  let glossaryCtx = null;
+
+  function emitGlossentry(el, ctx, category) {
+    dg.glossary.entries++;
+    const term = childText(el, 'glossterm');
+    const state = (attr(el, 'variation') ?? '').toUpperCase() || ctx.state || null;
+    if (!state) dg.glossary.national++;
+    else dg.glossary[state] = (dg.glossary[state] ?? 0) + 1;
+    if (!term) { dg.glossary.only2025++; return; }
+    if (!state) categoryByTerm.set(term, category);
+    if (!inScope(ctx)) return;
+    splice(el);
+    emit({
+      kind: 'glossary',
+      id: null, term, title: term,
+      // Which Schedule 1 sub-page defines the term. weblinks.mjs routes every glossary web_url on
+      // it, because Schedule 1's own page is a three-link index holding no terms at all — a reader
+      // sent there would not find the term it cites. In 2022 it is the `document-type` of the
+      // nested map the entry is inlined into, not an attribute on the entry.
+      category,
+      state,
+      supersedes: null, buildingClasses: null, climateZones: null,
+      ...pickCtx(ctx), node: el,
+    });
+  }
+
+  function emitClauseFile(file, ctx, { state = null, node = null } = {}) {
+    const root = node ?? load(file).documentElement;
+    if (root.nodeName !== 'clause') {
+      throw new Error(`read-2022 [${doc.key}]: ${file} is a <${root.nodeName}>, not a clause — a clauseref points at it`);
+    }
+    splice(root);
+    const { building, climate } = facetsOf(root);
+    emit({
+      kind: 'clause',
+      id: childText(root, 'sptc') || null,
+      term: null,
+      title: childText(root, 'title'),
+      state: state ?? stateOf(file) ?? ctx.state ?? null,
+      supersedes: supersedesOf(root),
+      buildingClasses: building,
+      climateZones: climate,
+      ...pickCtx(ctx),
+      node: root,
+    });
+  }
+
+  /**
+   * The state variations declared ON a national clause. Both kinds are units (§5.3):
+   *
+   *  * DELETE is a jurisdiction DISAPPLICATION, not a dangling reference. There is no target file
+   *    and none is needed — the provision IS the disapplication, and where the source spells it
+   *    out it is in `@deleted-text`. 129 of them exist and 96 carry text. Dropping them is the
+   *    worst class of omission a compliance corpus has: a reader greps F4D10, gets the national
+   *    clause, and is never told it does not apply in NSW.
+   *  * REPLACE resolves to a sibling file by `resolveStateFile`, then that file's OWN edition
+   *    membership is checked (§5.3.2) — 11 pointers corpus-wide survive the base view while their
+   *    target does not.
+   */
+  function emitClauseVariations(hostFile, hostRoot, ctx) {
+    for (const el of elementChildren(hostRoot)) {
+      if (el.nodeName !== 'clause-variation') continue;
+      const state = (attr(el, 'variation') ?? '').toUpperCase();
+      const type = attr(el, 'variation-type');
+      if (!STATES.has(state)) {
+        throw new Error(`read-2022 [${doc.key}]: ${hostFile} declares clause-variation variation="${attr(el, 'variation')}"`);
+      }
+      if (type === 'DELETE') {
+        dg.stateClauseUnits.del++;
+        emit({
+          kind: 'clause',
+          id: childText(hostRoot, 'sptc') || null,
+          term: null,
+          title: childText(hostRoot, 'title'),
+          state,
+          supersedes: null, buildingClasses: null, climateZones: null,
+          ...pickCtx(ctx),
+          node: el,
+        });
+        continue;
+      }
+      if (type !== 'REPLACE') {
+        throw new Error(`read-2022 [${doc.key}]: ${hostFile} declares variation-type="${type}" on a clause-variation`);
+      }
+      const host = facts.get(hostFile);
+      const target = resolveStateFile(hostFile, [host?.baseId, host?.acceptedId], state);
+      if (!target) {
+        throw new Error(`read-2022 [${doc.key}]: ${hostFile} declares a ${state} REPLACE whose file cannot be found. `
+          + 'Measured: 432/432 clause-variation pointers resolve, so this is a join that no longer fits the data.');
+      }
+      if (!targetIsNcc2022(target)) continue;
+      if (emittedClauseFiles.has(target)) continue;
+      emittedClauseFiles.add(target);
+      dg.stateClauseUnits.repl++;
+      emitClauseFile(target, ctx, { state });
+    }
+  }
+
+  /* -- part-level state variations (§5.4) ----------------------------------- */
+
+  /**
+   * `part-variation` is the Part-level twin of `clause-variation`, and it needs reading from BOTH
+   * sources: 0 identities are FlattenedFile-only but 32 are STANDALONE-ONLY, so reading only the
+   * map loses the whole `J4`-`J9 | NT | DELETE` run ("Section J is replaced with Section J of BCA
+   * 2009"). 114 elements are 73 distinct `(num, state, variation-type)` identities, so a reader
+   * that does not dedupe over-emits by 41.
+   */
+  // Package-level, not per-container: a Part number can be claimed by several <part> elements in
+  // one map (volume-one's I4 four times over), and each of them would otherwise merge the SAME
+  // standalone file's variations and emit every identity again.
+  const emittedPartVariations = new Set();
+
+  function partVariationsFor(containerNum, mapElements, standaloneFile) {
+    const out = [];
+    const add = (el, sourceFile) => {
+      const key = `${containerNum}|${attr(el, 'variation')}|${attr(el, 'variation-type')}`;
+      if (emittedPartVariations.has(key)) return;
+      emittedPartVariations.add(key);
+      out.push({ el, sourceFile });
+    };
+    for (const el of mapElements) add(el, null);
+    if (standaloneFile) {
+      const root = load(standaloneFile).documentElement;
+      for (const el of elementChildren(root)) if (el.nodeName === VARIATION_TAG) add(el, standaloneFile);
+    }
+    return out;
+  }
+
+  function emitPartVariations(ctx, mapElements, standaloneFile) {
+    for (const { el, sourceFile } of partVariationsFor(ctx.containerNum, mapElements, standaloneFile)) {
+      const state = (attr(el, 'variation') ?? '').toUpperCase();
+      const type = attr(el, 'variation-type');
+      if (!STATES.has(state)) {
+        throw new Error(`read-2022 [${doc.key}]: part-variation on ${ctx.containerNum} declares variation="${attr(el, 'variation')}"`);
+      }
+      // The clean "href on exactly REPLACE, deleted-text on exactly DELETE" split does NOT
+      // generalise — 2 Housing Provisions REPLACE pointers carry both — so `variation-type`
+      // decides and the attributes are never used to infer the kind.
+      if (type === 'DELETE') {
+        dg.overviews++;
+        emit({
+          kind: 'page', overview: true,
+          id: null, term: null, title: ctx.containerTitle ?? '', state,
+          supersedes: null, buildingClasses: null, climateZones: null,
+          ...pickCtx(ctx), node: el,
+        });
+        continue;
+      }
+      if (type !== 'REPLACE') {
+        throw new Error(`read-2022 [${doc.key}]: part-variation on ${ctx.containerNum} declares variation-type="${type}"`);
+      }
+      const host = sourceFile ?? (partsByNum.get(ctx.containerNum) ?? [])[0] ?? null;
+      const target = resolveStateFile(host, [ctx.containerNum], state);
+      if (!target) {
+        throw new Error(`read-2022 [${doc.key}]: Part ${ctx.containerNum} declares a ${state} REPLACE whose file cannot be found. `
+          + 'Measured: 47/47 part-variation pointers resolve.');
+      }
+      if (!targetIsNcc2022(target)) continue;
+      const root = load(target).documentElement;
+      splice(root);
+      dg.overviews++;
+      emit({
+        kind: 'page', overview: true,
+        id: null, term: null,
+        title: childText(root, 'title') || ctx.containerTitle || '',
+        state,
+        supersedes: null, buildingClasses: null, climateZones: null,
+        ...pickCtx(ctx), node: root,
+      });
+    }
+  }
+
+  /* -- the map walk --------------------------------------------------------- */
+
+  const mapSrc = fs.readFileSync(path.join(xmlDir, 'FlattenedFile.xml'), 'utf8');
+  const mapDom = new DOMParser(XML_PARSER).parseFromString(mapSrc, 'text/xml');
+  applyBaseView(mapDom);
+  loaded.set('FlattenedFile.xml', mapDom);
+
+  const ctx0 = {
+    sectionNum: '', sectionType: 'other',
+    containerKind: null, containerNum: null, containerTitle: null,
+    category: null, overviewOwner: false, state: null,
+  };
+
+  const failLoud = (msg, trail) => {
+    throw new Error(`read-2022 [${doc.key}]: ${msg} — at ${trail.join('/')}`);
+  };
+
+  const ownProse = el => {
+    const out = [];
+    for (const c of elementChildren(el)) {
+      if (OWN_PROSE_TAGS.has(c.nodeName) || c.nodeName === SECTION_TAG) out.push(c);
+      else if (TRANSPARENT_TAGS.has(c.nodeName)) out.push(...ownProse(c));
+    }
+    return out;
+  };
+
+  function walk(el, ctx, trail) {
+    const tag = el.nodeName;
+    const path2 = trail.concat(tag);
+
+    if (ROOT_TAGS.has(tag)) {
+      // The three nested maps are Schedule 1: `document-type` is where a glossary entry's
+      // category comes from, and weblinks.mjs routes every glossary web_url on it.
+      const next = { ...ctx, category: GLOSSARY_CATEGORIES.get(attr(el, 'document-type') ?? '') ?? ctx.category };
+      for (const c of elementChildren(el)) walk(c, next, path2);
+      return;
+    }
+
+    if (SECTION_TAGS.has(tag)) {
+      const { num, type } = sectionOf(attr(el, 'section-num'));
+      const next = {
+        ...ctx, sectionNum: num, sectionType: type,
+        containerKind: null, containerNum: null, containerTitle: null,
+      };
+      // §11: `topicset/@summary` is CONTENT, not metadata — the Section's published abstract, 17
+      // of them, present in no 2025 package and nowhere else in this one. A walker that reads
+      // @section-num and @navtitle and stops loses it.
+      if (attr(el, 'summary') && inScope(next)) {
+        dg.overviews++;
+        emit({
+          kind: 'page', overview: true,
+          id: null, term: null, title: collapse(attr(el, 'navtitle') ?? ''), state: null,
+          supersedes: null, buildingClasses: null, climateZones: null,
+          sectionNum: next.sectionNum, sectionType: next.sectionType,
+          containerKind: 'ncc-section', containerNum: num || null, containerTitle: collapse(attr(el, 'navtitle') ?? ''),
+          node: el,
+        });
+      }
+      for (const c of elementChildren(el)) walk(c, next, path2);
+      return;
+    }
+
+    if (CONTAINER_TAGS.has(tag)) {
+      const num = childText(el, 'num');
+      const next = {
+        ...ctx, containerKind: tag, containerNum: num || ctx.containerNum,
+        containerTitle: childText(el, 'title') || ctx.containerTitle,
+        // A PART CAN BE A JURISDICTION'S OWN. Measured: 9 Part numbers are claimed by more than
+        // one <part> in a single map -- volume-one's I4 by NSW, TAS, VIC and WA, volume-three's
+        // E4 by TAS and VIC -- each carrying `variation` and holding only that state's clauses.
+        // Reading the attribute only on clauses would derive four Victorian, Tasmanian, New South
+        // Wales and Western Australian Part overviews onto ONE national filename and keep the
+        // last: exactly the silent overwrite emit.mjs's trap 1 records, in a second edition.
+        state: attr(el, 'variation') ?? ctx.state ?? null,
+      };
+      // Only a NATIONAL container merges the standalone file's part-variations. A jurisdiction's
+      // own Part (`variation="TAS"`) is not what that file varies, and merging would file the
+      // national Part's NSW disapplication under Tasmania.
+      const standalone = next.state ? null
+        : (partsByNum.get(num) ?? []).find(f => facts.get(f).root === tag && !facts.get(f).variation) ?? null;
+      const prose = ownProse(el);
+      next.overviewOwner = prose.length > 0;
+      if (inScope(next)) {
+        if (prose.length) {
+          for (const p of prose) splice(p);
+          dg.overviews++;
+          emit({
+            kind: 'page', overview: true,
+            id: null, term: null, title: next.containerTitle ?? '', state: next.state,
+            supersedes: null, buildingClasses: null, climateZones: null,
+            ...pickCtx(next), node: el,
+          });
+        }
+        emitPartVariations(next, elementChildren(el).filter(c => c.nodeName === VARIATION_TAG), standalone);
+      }
+      for (const c of elementChildren(el)) walk(c, next, path2);
+      return;
+    }
+
+    if (TRANSPARENT_TAGS.has(tag)) {
+      for (const c of elementChildren(el)) walk(c, ctx, path2);
+      return;
+    }
+
+    if (tag === SECTION_TAG) {
+      // Everything here except the clauserefs is the enclosing container's own prose, already
+      // handed to its overview unit whole. If no container claimed it, emitting nothing would
+      // drop the text without a sound — the same guard read-2025.mjs puts on its own-prose tags.
+      if (!ctx.overviewOwner) failLoud('<section> holds prose but no container owns it', path2);
+      for (const c of elementChildren(el)) {
+        if (c.nodeName === CLAUSE_POINTER_TAG || c.nodeName === SECTION_TAG) walk(c, ctx, path2);
+      }
+      return;
+    }
+
+    if (tag === CLAUSE_POINTER_TAG) {
+      for (const c of elementChildren(el)) {
+        if (c.nodeName === 'title') continue;      // "NT INSERT Clause" — restates the target's own @variation
+        if (c.nodeName !== 'clause') failLoud(`<${c.nodeName}> inside a clauseref`, path2);
+        const conref = attr(c, 'conref');
+        if (!conref) failLoud('a clauseref whose clause carries no conref', path2);
+        dg.map.mapped++;
+        const file = facts.has(conref) ? conref : null;
+        if (!file) {
+          // Shipped broken in the source: 4 conrefs in volume-three carry a literal
+          // `ERROR_IN_RESOLVING_URI:` prefix. Anything else that fails to resolve is ours.
+          if (!conref.startsWith('ERROR_IN_RESOLVING_URI:')) {
+            failLoud(`clauseref conref ${JSON.stringify(conref)} names no file in XMLs/`, path2);
+          }
+          dg.brokenConrefs.push(conref);
+          continue;
+        }
+        if (emittedClauseFiles.has(file)) { dg.map.duplicateConrefs++; continue; }
+        if (!facts.get(file).baseId) { dg.map.mappedNo2022++; continue; }
+        emittedClauseFiles.add(file);
+        if (!inScope(ctx)) continue;
+        emitClauseFile(file, ctx);
+        emitClauseVariations(file, loaded.get(file).documentElement, ctx);
+      }
+      return;
+    }
+
+    if (UNIT_TAGS.has(tag)) {
+      if (tag === 'page') {
+        if (!inScope(ctx)) return;
+        splice(el);
+        dg.pages++;
+        emit({
+          kind: 'page',
+          id: null, term: null, title: childText(el, 'title'),
+          state: (attr(el, 'variation') ?? '').toUpperCase() || ctx.state || null,
+          supersedes: null, buildingClasses: null, climateZones: null,
+          ...pickCtx(ctx), node: el,
+        });
+        return;
+      }
+      // abcb-glossentry. §1.3 applies here too: 30 entries per package are 2025-only, and a
+      // walker that base-views clauses but not glossary entries publishes 30 phantom definitions.
+      glossaryCtx = ctx;
+      seenGlossaryIds.add(attr(el, 'id'));
+      emitGlossentry(el, ctx, ctx.category);
+      return;
+    }
+
+    if (tag === VARIATION_TAG) return;             // claimed by its container above
+    if (OWN_PROSE_TAGS.has(tag)) return;           // claimed by its container's overview above
+    if (METADATA_TAGS.has(tag)) return;
+    if (POINTER_TAGS.has(tag)) { dg.glossrefs++; return; }
+
+    failLoud(
+      `unknown element <${tag}> — classify it (root / section / container / transparent / unit / `
+      + 'own-prose / metadata / pointer); never add a prose tag to a structural set',
+      path2,
+    );
+  }
+
+  walk(mapDom.documentElement, ctx0, []);
+
+  /**
+   * The clauses the base map does NOT reach (§4.1's "A says 2025, B says 2022").
+   *
+   * ⊕ docs/content-model-2022.md §4.1 concludes that the map UNDER-COUNTS here, and that
+   * volume-one's five `F1D12`/`F1D13`/`F1D14`/`F1D15`/`F1V1` files are NCC 2022 Part F3 clauses the
+   * map's base view loses. Measured against the packages, the premise of that conclusion does not
+   * hold: `F3D2-roof-coverings.xml` also exists, the base map DOES reach it, and its base view is
+   * byte-identical to `F1D12-roof-coverings.xml`'s (452 chars, character for character; same for
+   * all five). The five are DUPLICATE COPIES made under the 2025 numbering, not lost clauses — so
+   * emitting them produces five duplicate files, not five recovered ones. That is what a first
+   * implementation of §4.1's advice did here, and the filename-uniqueness check is what caught it.
+   *
+   * What survives of §4.1 is the reconciliation itself, kept as an ASSERTION rather than a rescue:
+   * a clause reachable only through a 2025 insertion is fine IF its designation is already in the
+   * corpus. One that is not would be a clause genuinely lost between the two membership signals,
+   * and there is no safe default for it — the map files these five under the DRAFT's Part F1
+   * ("Surface water management…"), not under NCC 2022's Part F3 ("Roof and wall cladding"), so
+   * even the container the map offers would be wrong. It throws.
+   */
+  {
+    const emittedIds = new Set(units.filter(u => u.kind === 'clause' && !u.state).map(u => u.id));
+    const mapAccepted = new DOMParser(XML_PARSER).parseFromString(mapSrc, 'text/xml');
+    (function scan(el) {
+      for (const c of elementChildren(el)) {
+        if (c.nodeName === 'clause' && attr(c, 'conref')) {
+          const file = attr(c, 'conref');
+          if (!facts.has(file) || emittedClauseFiles.has(file) || !facts.get(file).baseId) continue;
+          dg.map.insertOnly++;
+          const id = facts.get(file).baseId;
+          if (emittedIds.has(id)) { dg.map.insertOnlyDuplicates++; continue; }
+          throw new Error(`read-2022 [${doc.key}]: ${file} is NCC 2022 (base sptc ${id}) but the map reaches `
+            + 'it only through a 2025 insertion and no mapped clause supplies that designation. Neither '
+            + 'membership signal covers it, and the container the map offers belongs to the 2025 draft.');
+        }
+        scan(c);
+      }
+    })(mapAccepted.documentElement);
+  }
+
+  /**
+   * The glossary's own rescue. The three nested maps inline 543 entries per package, which is the
+   * whole glossary in three of the four — but volume-two ships 544 `abcb-glossentry` FILES, and
+   * `glossary-Existing-building-WA.xml` is inlined nowhere. It is a Western Australian definition
+   * of a term the Code uses, its base `glossterm` is non-empty, and nothing else in the package
+   * would ever reach it.
+   *
+   * The one thing the map cannot supply for it is `category` — which of Schedule 1's three
+   * sub-pages defines it — and that is not decorative: weblinks.mjs routes every glossary web_url
+   * on it. A state sense of a term belongs on the same sub-page as the national sense, so it takes
+   * that entry's category, and fails loud rather than guessing when there is no national sense.
+   */
+  for (const [file, f] of facts) {
+    if (f.root !== 'abcb-glossentry' || seenGlossaryIds.has(f.id)) continue;
+    const term = f.baseTerm;
+    const category = term ? categoryByTerm.get(term) ?? null : null;
+    // Volume Two's `glossary-Existing-building-WA.xml` is the corpus's one case: a WA-only
+    // definition with no national sense in any of the four maps, so which Schedule 1 sub-page
+    // publishes it cannot be established. It is emitted WITHOUT a category, which resolves
+    // `web_url` to null — fail closed, the way weblinks.mjs is built to fail — and recorded here.
+    // Dropping the definition instead would lose a jurisdiction's law to a missing hyperlink.
+    if (term && !category) dg.uncategorisedGlossary.push(file);
+    emitGlossentry(load(file).documentElement, glossaryCtx ?? ctx0, category);
+  }
+
+  /* -- figure census (§6.1) -------------------------------------------------- */
+
+  for (const [file, f] of facts) {
+    if (f.root !== 'image-reference') continue;
+    const wrapper = load(file).documentElement;
+    if (!childEl(wrapper, 'image')) { dg.figures.baseEmptyWrappers++; continue; }
+    const disk = resolveImageFile(file, childEl(wrapper, 'image').getAttribute('href') ?? '');
+    if (disk) usedImages.add(disk);
+  }
+  dg.figures.distinct = usedImages.size;
+  dg.unreferencedImages = images.length - usedImages.size;
+
+  if (diagnostics && typeof diagnostics === 'object') Object.assign(diagnostics, dg);
+  return units;
+}

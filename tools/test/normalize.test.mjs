@@ -8,11 +8,14 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import { DOMParser } from '@xmldom/xmldom';
 import { normalizeUnit } from '../src/normalize.mjs';
-import { BODY_SKIP_TAGS, DOCUMENTS_2025, overviewChildren, readDocument2025 } from '../src/read-2025.mjs';
+import { BODY_SKIP_TAGS, BODY_TAGS_2025, DOCUMENTS_2025, overviewChildren, readDocument2025 } from '../src/read-2025.mjs';
+import { BODY_TAGS_2022 } from '../src/read-2022.mjs';
 
 const el = s => new DOMParser().parseFromString(s, 'text/xml').documentElement;
 const opts = { year: '2025', cdnKey: 'volume1' };
-const unit = (node, extra = {}) => ({ node, kind: 'clause', id: 'T1', title: 'T', ...extra });
+// `bodyTags` is the edition's body vocabulary, and normalizeUnit REFUSES a unit without one:
+// which child tags belong to another unit is a property of the reader, not of the renderer.
+const unit = (node, extra = {}) => ({ node, kind: 'clause', id: 'T1', title: 'T', bodyTags: BODY_TAGS_2025, ...extra });
 const md = (xml, o = opts, extra) => normalizeUnit(unit(el(xml), extra), o).bodyMd;
 const CDN = 'https://cdn.aecassistant.com.au/images/ncc';
 
@@ -286,7 +289,7 @@ test('a notice survives verbatim on one line', () => {
   const text = 'This specification has been deliberately left blank. Specification 44 of the ABCB Housing Provisions 2025 does not apply in NSW.';
   const n = el(`<specification><title>S44</title><notice>${text}</notice></specification>`);
   const { bodyMd } = normalizeUnit(
-    { node: n, kind: 'page', id: null, title: 'S44', overview: true }, opts);
+    { node: n, kind: 'page', id: null, title: 'S44', overview: true, bodyTags: BODY_TAGS_2025 }, opts);
   assert.ok(bodyMd.split('\n').includes(text));
 });
 
@@ -308,7 +311,7 @@ test('glossary bodies render the definition and the acronym, never the term itse
     + `<glossdef><content><p>Flat or profiled aluminium sheet material.</p></content></glossdef>`
     + `<glossBody><glossAlt><glossAcronym>ACP</glossAcronym></glossAlt></glossBody></glossentry>`);
   const { bodyMd } = normalizeUnit(
-    { node: n, kind: 'glossary', id: null, term: 'Aluminium Composite Panel (ACP)', title: 'Aluminium Composite Panel (ACP)' }, opts);
+    { node: n, kind: 'glossary', id: null, term: 'Aluminium Composite Panel (ACP)', title: 'Aluminium Composite Panel (ACP)', bodyTags: BODY_TAGS_2025 }, opts);
   assert.match(bodyMd, /^Flat or profiled aluminium sheet material\.$/m);
   assert.match(bodyMd, /^Acronym: ACP$/m);
   assert.ok(!/^Aluminium Composite Panel/m.test(bodyMd), 'the term is the H1, not the body');
@@ -377,7 +380,7 @@ test('unknown block element throws with unit identity', () => {
 
 test('the throw names a glossary unit by its term when it has no id', () => {
   const n = el(`<glossentry><glossterm>fire source feature</glossterm><glossdef><content><p>a <zz/></p></content></glossdef></glossentry>`);
-  assert.throws(() => normalizeUnit({ node: n, kind: 'glossary', id: null, term: 'fire source feature' }, opts),
+  assert.throws(() => normalizeUnit({ node: n, kind: 'glossary', id: null, term: 'fire source feature', bodyTags: BODY_TAGS_2025 }, opts),
     /zz.*fire source feature/s);
 });
 
@@ -401,7 +404,7 @@ test('an overview unit renders only the container prose, never the clauses benea
     + `<subtopic><clause><sptc>A1G1</sptc><title>Scope</title><subclause><content><num>(1)</num><p>Clause text.</p></content></subclause></clause>`
     + `<callout><content><p>Subtopic-level guidance.</p></content></callout></subtopic></part>`);
   const { bodyMd } = normalizeUnit(
-    { node: n, kind: 'page', id: null, title: 'Interpretation', overview: true }, opts);
+    { node: n, kind: 'page', id: null, title: 'Interpretation', overview: true, bodyTags: BODY_TAGS_2025 }, opts);
   assert.match(bodyMd, /This Part contains…/);
   assert.match(bodyMd, /Subtopic-level guidance/, 'callouts under a subtopic belong to the Part overview');
   assert.ok(!/Clause text/.test(bodyMd), 'the clause has its own file');
@@ -635,4 +638,96 @@ test('volume-one: a national clause never carries its own state variation text (
   }
   assert.ok(nested > 100, `expected many nested units, saw ${nested}`);
   assert.ok(probed > 50, `expected many nested units with text of their own, saw ${probed}`);
+});
+
+/* ============================================================ *
+ * 9. The 2022 vocabulary. Same renderer, different spellings —  *
+ *    see docs/content-model-2022.md §9.1 and §10.               *
+ * ============================================================ */
+
+const unit22 = (node, extra = {}) =>
+  ({ node, kind: 'clause', id: 'T22', title: 'T', bodyTags: BODY_TAGS_2022, ...extra });
+const md22 = (xml, extra) => normalizeUnit(unit22(el(xml), extra), { year: '2022', cdnKey: 'volume1' }).bodyMd;
+
+test('CALS tables render: tgroup is transparent, colspec is metadata, row/entry are tr/td', () => {
+  const body = md22('<clause><title>T</title><table-reference><num>J4D6b</num><title>Solar admittance</title>'
+    + '<table><tgroup cols="2"><colspec colname="c1" colnum="1"/><colspec colname="c2" colnum="2"/>'
+    + '<thead><row><entry>Climate zone</entry><entry>Eastern</entry></row></thead>'
+    + '<tbody><row><entry>1</entry><entry>0.12</entry></row><row><entry>2</entry><entry>0.13</entry></row></tbody>'
+    + '</tgroup></table><desc-note><p>Note 1.</p></desc-note></table-reference></clause>');
+  assert.match(body, /^### Table J4D6b — Solar admittance$/m, 'num is a CHILD element in 2022, not an attribute');
+  assert.match(body, /^\| Climate zone \| Eastern \|$/m);
+  assert.match(body, /^\| --- \| --- \|$/m);
+  assert.match(body, /^\| 2 \| 0\.13 \|$/m);
+  assert.match(body, /^> Note 1\.$/m);
+});
+
+test('a figure reads href-resolved src, and @longdescref is the legend, not a reference', () => {
+  const { bodyMd, figures } = normalizeUnit(unit22(el(
+    '<clause><title>T</title><image-reference><num>11.2.1</num><title>Stairway terms</title>'
+    + '<image alt="Stairway terms" src="image-11-2-1-stairway-terms.svg" href="/tmp/QppServer/x.svg"'
+    + ' longdescref="(a) quarter landings - 2 flights. (b) continuous stairway - 1 flight."/>'
+    + '</image-reference></clause>')), { year: '2022', cdnKey: 'housing' });
+  assert.deepEqual(figures, ['image-11-2-1-stairway-terms.svg']);
+  assert.match(bodyMd, /!\[Figure 11\.2\.1: Stairway terms\]\(.*\/2022\/housing\/image-11-2-1-stairway-terms\.svg\)/);
+  assert.match(bodyMd, /^\(a\) quarter landings - 2 flights\. \(b\) continuous stairway - 1 flight\.$/m);
+});
+
+test('a callout says WHICH kind of box it is — 2025 records no equivalent', () => {
+  assert.match(md22('<clause><title>T</title><callout><callout-type ncc-info-type="exemption"/>'
+    + '<p>This does not apply to a Class 10 building.</p></callout></clause>'), /^> \*\*Exemption\*\*$/m);
+  assert.match(md22('<clause><title>T</title><callout><callout-type ncc-info-type="notes"/>'
+    + '<title>Roof space ventilation</title><p>Guidance.</p></callout></clause>'),
+  /^> \*\*Notes — Roof space ventilation\*\*$/m);
+});
+
+test('boilerplate titles that restate an attribute never reach the corpus', () => {
+  // <title>SubClause</title> 11,520 times, "<STATE> REPLACE Definition" 30 times. Both restate
+  // attributes the frontmatter already carries; both would otherwise be published as prose.
+  const sub = md22('<clause><title>T</title><subclause outputclass="subclause"><title>SubClause</title>'
+    + '<num>1</num><p>The provision.</p></subclause></clause>');
+  assert.equal(sub, '**(1)** The provision.');
+  const gloss = normalizeUnit({
+    node: el('<abcb-glossentry variation="NSW"><glossterm>Accessway</glossterm>'
+      + '<glossdef outputclass="glossdef"><title>NSW REPLACE Definition</title><p>The NSW sense.</p></glossdef></abcb-glossentry>'),
+    kind: 'glossary', id: null, term: 'Accessway', title: 'Accessway', state: 'NSW', bodyTags: BODY_TAGS_2022,
+  }, { year: '2022', cdnKey: 'volume1' }).bodyMd;
+  assert.equal(gloss, 'The NSW sense.');
+});
+
+test('a whole provision carried in @deleted-text is rendered — three carriers (§5.0)', () => {
+  // A childless DELETE pointer IS the unit; a subclause carries the same attribute below unit
+  // level; and the 33 pointers with no attribute fall back to their own element text.
+  assert.equal(normalizeUnit(unit22(el('<clause-variation deleted-text="F4D10 does not apply in NSW."'
+    + ' variation="NSW" variation-type="DELETE">NSW DELETE Clause</clause-variation>')),
+  { year: '2022', cdnKey: 'volume1' }).bodyMd, 'F4D10 does not apply in NSW.');
+  assert.equal(normalizeUnit(unit22(el('<clause-variation variation="NT" variation-type="DELETE">NT DELETE Clause</clause-variation>')),
+    { year: '2022', cdnKey: 'volume1' }).bodyMd, 'NT DELETE Clause');
+  assert.match(md22('<clause><title>T</title><subclause outputclass="subclause"><title>SubClause</title>'
+    + '<num>1</num><p>National.</p><subclause deleted-text="This subclause does not apply in VIC."'
+    + ' variation="VIC" variation-type="DELETE"><title>VIC DELETE SubClause</title></subclause></subclause></clause>'),
+  /\*\*VIC variation \(DELETE\)\*\*\n\nThis subclause does not apply in VIC\./);
+});
+
+test('a Section abstract lives in topicset/@summary and exists nowhere else (§11)', () => {
+  assert.equal(normalizeUnit({
+    node: el('<topicset navtitle="Ancillary provisions" section-num="Section G" summary="Section G contains requirements for specific components."/>'),
+    kind: 'page', overview: true, id: null, title: 'Ancillary provisions', bodyTags: BODY_TAGS_2022,
+  }, { year: '2022', cdnKey: 'volume1' }).bodyMd, 'Section G contains requirements for specific components.');
+});
+
+test('an equation keeps its MathML and drops the base64 raster both editions carry', () => {
+  const body = md22('<clause><title>T</title><subclause outputclass="subclause"><title>SubClause</title>'
+    + '<equation-block><mathML><math><semantics><mtable><mtr><mtd><msub><mi>C</mi><mi>R</mi></msub>'
+    + '<mo>=</mo><mn>1</mn></mtd></mtr><mtr><mtd><msub><mi>C</mi><mi>S</mi></msub><mo>=</mo><mn>2</mn></mtd></mtr>'
+    + '</mtable><annotation encoding="MathType-MTEF">MathType@MTEF@5@5@base64…</annotation></semantics></math></mathML>'
+    + '<image content-type="gif">R0lGODlhSgAyAPAAAP…</image></equation-block></subclause></clause>');
+  assert.equal(body, 'C_R=1; C_S=2');
+  assert.ok(!/MathType@MTEF/.test(body), 'the MTEF annotation never reaches the corpus');
+  assert.ok(!/R0lGODlh/.test(body), "the raster fallback is not a figure and has no href to resolve");
+});
+
+test('a unit with no bodyTags is refused rather than rendered against the wrong edition', () => {
+  assert.throws(() => normalizeUnit({ node: el('<clause><title>T</title><p>x</p></clause>'), kind: 'clause', id: 'T' }, opts),
+    /carries no bodyTags/);
 });

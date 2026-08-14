@@ -618,3 +618,43 @@ test('the slug cap really bounds every emitted filename', { skip: !have }, () =>
   assert.ok(hitCap > 50, `only ${hitCap} slugs exceeded the cap — the rule is never exercised`);
   assert.ok(longest.length < 120, `runaway path (${longest.length}): ${longest}`);
 });
+
+/* ============================================================ *
+ * 8. Hardening carried over with the second XML source.         *
+ *                                                               *
+ * Both are one defect class: a promise this module makes —      *
+ * "valid YAML or a throw", "a corpus-relative path or a throw"  *
+ * — that was only enforced over PART of its input.              *
+ * ============================================================ */
+
+test('every control character needsQuote detects is also ESCAPED, not emitted raw', () => {
+  // needsQuote covers the whole C0 range plus DEL; the escaper covered \n \r \t only, so a VT,
+  // FF or DEL landed raw inside a double-quoted scalar. That is unparseable YAML emitted without
+  // a throw — the one outcome this module says cannot happen.
+  const cases = [['\u000b', '\\x0b'], ['\u000c', '\\x0c'], ['\u0000', '\\x00'],
+    ['\u007f', '\\x7f'], ['\u001b', '\\x1b']];
+  for (const [ch, esc] of cases) {
+    const line = emitUnit(clause({ title: `Ramps${ch}and stairs` }), NORM, OPTS).content
+      .split('\n').find(l => l.startsWith('title:'));
+    assert.equal(line, `title: "Ramps${esc}and stairs"`);
+    assert.ok(!/[\u0000-\u001f\u007f]/.test(line), 'no raw control character survives');
+  }
+  // The three the YAML spec names keep their spelling rather than becoming \x0a and friends.
+  const named = emitUnit(clause({ title: 'a\nb\tc\rd' }), NORM, OPTS).content
+    .split('\n').find(l => l.startsWith('title:'));
+  assert.equal(named, 'title: "a\\nb\\tc\\rd"');
+});
+
+test('edition gets the same path-safety check the directory already had', () => {
+  // Both are reader-supplied data interpolated into a filesystem path the build writes straight
+  // through. A check applied to one of two interpolations is not a check.
+  for (const edition of ['../../etc', '/2025', 'C:2025', '2025\\x']) {
+    assert.throws(() => emitUnit(clause({ edition }), NORM, OPTS), /not a safe corpus-relative path/,
+      `edition ${JSON.stringify(edition)} must be refused`);
+  }
+  assert.throws(() => emitUnit(clause({ volume: '../escape' }), NORM, OPTS), /not a safe corpus-relative path/);
+  assert.throws(() => emitUnit(clause({ edition: '' }), NORM, OPTS), /no edition/);
+  assert.equal(emitUnit(clause({ edition: '2022' }), NORM, { ...OPTS, citationPrefix: 'NCC 2022 V1' }).relPath,
+    '2022/volume-one/a1g1-scope.md');
+});
+

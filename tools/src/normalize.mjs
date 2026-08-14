@@ -12,8 +12,12 @@
 //     element in none of them throws, naming the element and the unit. Silently dropping content
 //     from a compliance corpus is the worst outcome available here — worse than crashing.
 //
-// Pure: DOM in, strings out. No filesystem, no network, no module state.
-import { BODY_SKIP_TAGS, overviewChildren } from './read-2025.mjs';
+// Pure: DOM in, strings out. No filesystem, no network, no module state — and, since the second
+// reader landed, no import from a reader either. Which child tags belong to another unit is a
+// property of the EDITION, not of this module: 2022's `clauseref`, `subtopic` and `meta` mean
+// nothing in 2025, and 2025's `content` and `spec-topic` mean nothing in 2022. Each reader
+// therefore declares its own vocabulary on every unit as `bodyTags`, and this module refuses a
+// unit that does not carry one rather than falling back to an edition's set that may not fit.
 
 const DEFAULT_CDN_BASE = 'https://cdn.aecassistant.com.au/images/ncc';
 
@@ -33,6 +37,17 @@ const INLINE_TAGS = new Set([
   'signage',          //    12 — literal sign wording ("FIRE SAFETY DOOR"); verbatim, 9 of 12 in <li>
   'equation-inline',  //   494 — MathType equation embedded in a sentence
   'glossterm',        //  2224 — the glossary term; skipped at a unit's top level, inline elsewhere
+]);
+
+// Carry nothing, ever, and are dropped wherever they are met. Each was inspected before it was
+// put here; a childless element is not automatically empty of meaning, and two of these three
+// would have been if their attributes were not read elsewhere.
+const EMPTY_2022_TAGS = new Set([
+  'placeholder',                //  87 — <placeholder>[ARCHIVE]</placeholder> / [NUMBER]: an
+                                //       authoring stub. read-2022.mjs treats it as an ABSENT
+                                //       archive-num rather than shipping "[ARCHIVE]" as one.
+  'common-cellChildTextNode',   //  10 — an empty authoring artefact inside <entry>
+  'related-links',              //   2 — always empty
 ]);
 
 // Rendered as blocks. Every entry has a case in renderBlock's switch, and renderListItem gates on
@@ -64,8 +79,17 @@ const BLOCK_TAGS = new Set([
   'glossdef',                   // 2224 — transparent; the definition body
   'glossBody', 'glossAlt',      //   72 — transparent wrappers around the acronym
   'glossAcronym',               //   72 — the term's acronym ("ACP")
+  'glossAbbreviation',          //    8 — 2022; the sibling of glossAcronym, same job
   'intro-part',                 //  124 — a Part's own overview prose
   'signage',                    // block form: 3 of 12 sit directly under <content>
+  // --- 2022 spellings (docs/content-model-2022.md §9.1) ---------------------------------
+  'image',                      // 3446 — the 2022 <img>. `href` is a publishing-session path, so
+                                //        read-2022.mjs resolves the disk name onto `src` (§6).
+  'clauseref',                  // 5705 — a pointer at a clause emitted as its own unit. Reached
+                                //        nested inside a Specification's <section>, which is that
+                                //        Specification's own prose AND holds 310 of them.
+  'callout-type',               // 2613 — always empty; the box's kind is @ncc-info-type
+  ...EMPTY_2022_TAGS,
 ]);
 
 // A unit's identity, already carried in frontmatter and the H1 by emit.mjs. Skipped at the top
@@ -74,15 +98,21 @@ const UNIT_IDENTITY_TAGS = new Set(['title', 'sptc', 'glossterm']);
 
 // Carry no content and never can: verified childless in all five documents.
 const EMPTY_TABLE_METADATA = new Set([
-  'col',       // 2439 — always <col/>
-  'colgroup',  //  190 — always <colgroup span=""/>
+  'col',       //  2439 — always <col/>
+  'colgroup',  //   190 — always <colgroup span=""/>
+  'colspec',   // 12688 — 2022 CALS column metadata; childless, the same job as col/colgroup
 ]);
+
+// A table cell. `entry` is CALS's td/th rolled into one — 140,385 of them, the single commonest
+// element in the 2022 corpus.
+const TABLE_CELL_TAGS = new Set(['td', 'th', 'entry']);
 
 // Presentation MathML. See flattenMath for the linear form each produces.
 const MATHML_TAGS = new Set([
   'mathML', 'math', 'semantics', 'mrow', 'mstyle',
   'mi', 'mn', 'mo', 'mtext',
   'msub', 'msup', 'msubsup', 'munderover', 'mover', 'mfrac', 'msqrt', 'mfenced',
+  'mtable', 'mtr', 'mtd',   // 8/16/16 — 2022 only; a matrix inside an equation
 ]);
 
 // <a>/<xref> types that point at a glossary entry — the only ones that are defined terms.
@@ -107,6 +137,54 @@ const LIST_STYLES = {
 };
 
 /**
+ * Some content is carried in ATTRIBUTES, where a child-element walker cannot see it (2022 §11).
+ * On `clause-variation` and `part-variation` there are no children at all, so nothing signals the
+ * omission — and what is being omitted is 169 whole provisions, 96 of them substantive. These are
+ * the four measured carriers; `image/@alt` and `@longdescref` are read at the figure instead.
+ */
+const UNIT_PROSE_ATTRIBUTES = new Map([
+  // `fallbackToText` is the CHILDLESS pointers only. The 33 DELETE pointers with no
+  // `deleted-text` still assert that the clause does not apply in that jurisdiction, and their
+  // element text — "NT DELETE Clause" — states the fact, so it is the fallback rather than an
+  // empty file. It must never apply to `subclause`, whose text is the whole sub-clause: falling
+  // back there would print every 2025 subclause's body twice, unlabelled, MathType base64 and all.
+  ['clause-variation', { attr: 'deleted-text', fallbackToText: true }],   //  96
+  ['part-variation', { attr: 'deleted-text', fallbackToText: true }],     //  69
+  ['subclause', { attr: 'deleted-text', fallbackToText: false }],         //   4
+  ['topicset', { attr: 'summary', fallbackToText: false }],               //  17
+]);
+
+/** A unit's body, when the unit's own element carries it as an attribute. */
+function unitProseAttribute(node) {
+  const rule = UNIT_PROSE_ATTRIBUTES.get(node?.nodeName);
+  if (!rule) return '';
+  const value = (node.getAttribute(rule.attr) ?? '').replace(/\s+/g, ' ').trim();
+  if (value) return value;
+  // The fallback is for a CHILDLESS pointer only. 2022's DELETE pointers have no children at all
+  // (559 of 561 clause-variation, all 114 part-variation), so their element text is the whole of
+  // what they say. 2025 spells `clause-variation` as a full container with the varied text
+  // inline, and falling back there would print that text a second time, unlabelled and with the
+  // MathType base64 that `flattenMath` exists to strip.
+  if (!rule.fallbackToText || elementChildren(node).length) return '';
+  return (node.textContent ?? '').replace(/\s+/g, ' ').trim();
+}
+
+/**
+ * The prose a container holds in its own right, in document order — exactly what a
+ * container-overview unit renders, and nothing else. Descends through the edition's transparent
+ * grouping elements so a callout parked under a subtopic still belongs to its Part.
+ */
+export function overviewChildren(el, bodyTags) {
+  const out = [];
+  for (let n = el.firstChild; n; n = n.nextSibling) {
+    if (n.nodeType !== 1) continue;
+    if (bodyTags.ownProse.has(n.nodeName)) out.push(n);
+    else if (bodyTags.transparent.has(n.nodeName)) out.push(...overviewChildren(n, bodyTags));
+  }
+  return out;
+}
+
+/**
  * @param {object} unit  a RawUnit from read-2025.mjs / read-2022.mjs
  * @param {{cdnBase?: string, year: string, cdnKey: string}} opts
  * @returns {{bodyMd: string, definedTerms: string[], figures: string[], warnings: string[],
@@ -125,12 +203,23 @@ export function normalizeUnit(unit, { cdnBase = DEFAULT_CDN_BASE, year, cdnKey }
     definedTerms: new Set(), figures: new Set(), warnings: [], tableRefs: [],
     pendingNum: null,
   };
+  const bodyTags = unit?.bodyTags;
+  if (!bodyTags?.skip || !bodyTags?.ownProse || !bodyTags?.transparent) {
+    throw new Error(
+      `normalize: ${unitLabel(unit)} carries no bodyTags — the READER declares which child tags `
+      + 'belong to another unit, which are a container\'s own prose, and which are transparent, '
+      + 'because the two editions do not share that vocabulary. Falling back to one edition\'s set '
+      + 'would silently render another edition\'s nested units into their parent.',
+    );
+  }
 
   // R19: an overview unit's node is a *container*; its body is the container's own prose, not
   // the clauses beneath it. Branch structurally on the flag, never on node.nodeName.
-  const children = unit.overview ? overviewChildren(unit.node) : ownChildren(unit.node);
+  const children = unit.overview ? overviewChildren(unit.node, bodyTags) : ownChildren(unit.node, bodyTags);
 
   const sink = makeSink();
+  const lead = unitProseAttribute(unit.node);
+  if (lead) sink.block(lead);
   for (const child of children) renderBlock(child, sink, st, 0);
   flushPendingNum(sink, st);
 
@@ -148,10 +237,10 @@ export function normalizeUnit(unit, { cdnBase = DEFAULT_CDN_BASE, year, cdnKey }
 // R1: a unit's body is its own content only. A clause nests a clause-variation 227 times across
 // the corpus and the walker emits both; without this the national clause would contain the NSW
 // text and a phrase grep would return the wrong jurisdiction.
-function ownChildren(node) {
+function ownChildren(node, bodyTags) {
   const out = [];
   for (const c of elementChildren(node)) {
-    if (BODY_SKIP_TAGS.has(c.nodeName)) continue;
+    if (bodyTags.skip.has(c.nodeName)) continue;
     if (UNIT_IDENTITY_TAGS.has(c.nodeName)) continue;
     out.push(c);
   }
@@ -179,9 +268,61 @@ function renderBlock(node, sink, st, depth) {
   const tag = node.nodeName;
   switch (tag) {
     /* transparent wrappers — their children are the blocks */
-    case 'content': case 'subclause': case 'glossdef': case 'glossBody': case 'glossAlt':
+    case 'content': case 'glossBody': case 'glossAlt':
     case 'intro-part':
       for (const c of elementChildren(node)) renderBlock(c, sink, st, depth);
+      return;
+
+    // Transparent too, but 30 of 2022's definitions open with a boilerplate <title> that restates
+    // the entry's own attributes — "NSW REPLACE Definition", the glossary twin of the
+    // <title>SubClause</title> of §5.2. The jurisdiction is read from `@variation` on the entry
+    // and already reaches the reader in `citation:` and `jurisdiction:`, so rendering the label
+    // would put "REPLACE Definition" into the corpus as though it were part of the definition.
+    case 'glossdef': {
+      const { rest } = partition(node, ['title']);
+      for (const c of rest) renderBlock(c, sink, st, depth);
+      return;
+    }
+
+    // Transparent too, but with two 2022-only rules. Its <title> is BOILERPLATE that restates the
+    // element's own attributes — "SubClause" 11,520 times, "NSW REPLACE SubClause" 94 — and
+    // rendering it would put the word "SubClause" into the corpus eleven thousand times. The
+    // attributes are read instead (measured: the rebuilt string equals the title in 98 of 98),
+    // and one subclause per package carries a whole VIC disapplication in @deleted-text.
+    case 'subclause': {
+      const { rest } = partition(node, ['title']);
+      // Labelled only when the sub-clause DECLARES a variation of its own — 2022 spells that as
+      // `variation` + `variation-type` together (§5.2). 2025's `subclause@state` is INHERITED
+      // context inside an already state-scoped unit, so labelling on `state` alone would stamp a
+      // redundant "SA variation" into the middle of a file whose every line is South Australian.
+      if (node.getAttribute('variation-type')) sink.block(`**${variationLabel(node)}**`);
+      const deleted = unitProseAttribute(node);
+      if (deleted) sink.block(deleted);
+      for (const c of rest) renderBlock(c, sink, st, depth);
+      return;
+    }
+
+    // A pointer at a clause that is emitted as its own unit. Reached nested, inside a
+    // Specification's <section> — which is that Specification's own prose AND holds 310 of these.
+    // Its optional <title> ("NT INSERT Clause") restates the target's own @variation, which the
+    // target carries; the <clause> stub's sptc/title/archive-num are empty placeholders.
+    case 'clauseref':
+      for (const c of elementChildren(node)) {
+        if (c.nodeName !== 'title' && c.nodeName !== 'clause') {
+          throw fail(`<${c.nodeName}>`, st, 'inside a clauseref, which holds only a title and a conref stub');
+        }
+      }
+      return;
+
+    // Empty in all 2613 measured instances; the box's kind is @ncc-info-type, read by `callout`.
+    case 'callout-type':
+      if (elementChildren(node).length || (node.textContent ?? '').trim()) {
+        throw fail('<callout-type> carrying content', st, 'where it is empty in every measured instance');
+      }
+      return;
+
+    // Verified childless / empty — see EMPTY_2022_TAGS for what each one is.
+    case 'placeholder': case 'common-cellChildTextNode': case 'related-links':
       return;
 
     case 'p': {
@@ -222,10 +363,14 @@ function renderBlock(node, sink, st, depth) {
       sink.block(`${tag === 'h3' ? '###' : '##'} ${inlineChildren(node, st)}`);
       return;
 
-    case 'table':
+    case 'table': {
       flushPendingNum(sink, st);
+      // 4 corpus tables carry a <title> of their own, inside the table rather than on its wrapper.
+      const caption = partition(node, ['title']).taken.title;
+      if (caption) sink.block(`**${inlineChildren(caption, st)}**`);
       sink.block(renderTable(node, st));
       return;
+    }
 
     case 'table-reference': case 'table-reference-variation':
     case 'table-variation':
@@ -238,7 +383,7 @@ function renderBlock(node, sink, st, depth) {
       renderImageReference(node, sink, st, depth);
       return;
 
-    case 'img':
+    case 'img': case 'image':
       flushPendingNum(sink, st);
       sink.block(figureLine(node, '', '', st));
       return;
@@ -246,10 +391,16 @@ function renderBlock(node, sink, st, depth) {
     // Notes and explanatory boxes are blockquotes — the design's signal for "not the provision".
     case 'callout': {
       flushPendingNum(sink, st);
-      const { taken, rest } = partition(node, ['title']);
+      const { taken, rest } = partition(node, ['title', 'callout-type']);
       const inner = makeSink();
+      // 2022's @ncc-info-type says whether the box is an exemption, a limitation, an application
+      // note or plain explanatory information — a distinction with compliance consequences that
+      // 2025 does not record at all. The label is the source's own token, capitalised, never a
+      // phrase invented for it.
+      const kind = (taken['callout-type']?.getAttribute('ncc-info-type') ?? '').trim();
       const t = taken.title ? inlineChildren(taken.title, st) : '';
-      if (t) inner.block(`**${t}**`);
+      const label = [kind ? kind[0].toUpperCase() + kind.slice(1) : '', t].filter(Boolean).join(' — ');
+      if (label) inner.block(`**${label}**`);
       for (const c of rest) renderBlock(c, inner, st, depth);
       sink.block(blockquote(inner.done()));
       return;
@@ -298,7 +449,7 @@ function renderBlock(node, sink, st, depth) {
     }
 
     // The acronym of the entry's term, carried in its own element rather than in the definition.
-    case 'glossAcronym':
+    case 'glossAcronym': case 'glossAbbreviation':
       sink.block(`Acronym: ${inlineChildren(node, st)}`);
       return;
 
@@ -456,13 +607,13 @@ function romanLabel(i) {
 /* -- tables ----------------------------------------------------------------- */
 
 function renderTableReference(node, sink, st, depth) {
-  const { taken, rest } = partition(node, ['title']);
+  const { taken, rest } = partition(node, ['title', 'num']);
   // Only the plain element is counted: content-model-2025.md's unit table counts
   // `table-reference` and not `table-reference-variation` / `table-variation`, so counting those
   // too would inflate the parity column past the number it is checked against.
   if (node.nodeName === 'table-reference') st.tableRefs.push(node.parentNode?.nodeName ?? '(no parent)');
   if (node.nodeName !== 'table-reference') sink.block(`**${variationLabel(node)}**`);
-  const num = (node.getAttribute('num') ?? '').replace(/\s+/g, ' ').trim();
+  const num = designation(node, taken.num);
   const title = taken.title ? inlineChildren(taken.title, st) : '';
   // "Table B1P1a" is exactly how the corpus's own <a type="table-reference"> cites it, so a grep
   // on the citation lands on this heading.
@@ -522,18 +673,24 @@ function renderTable(table, st) {
   return out.join('\n');
 }
 
+// Both table vocabularies land here. 2025 is HTML — table > thead|tbody > tr > td|th. 2022 is
+// CALS — table > tgroup > colspec|thead|tbody > row > entry — with `tgroup` transparent between
+// the table and its head/body, and `colspec` the column metadata `col`/`colgroup` are in 2025.
 function collectRows(node, rows, st, inHead) {
   for (const c of elementChildren(node)) {
     switch (c.nodeName) {
+      case 'tgroup': collectRows(c, rows, st, inHead); break;
+      // Consumed by the `table` rule as the caption, before the grid is built. 4 corpus tables.
+      case 'title': break;
       case 'thead': collectRows(c, rows, st, true); break;
       case 'tbody': case 'tfoot': collectRows(c, rows, st, false); break;
-      case 'tr': {
+      case 'tr': case 'row': {
         const cells = [];
         for (const cell of elementChildren(c)) {
-          if (cell.nodeName !== 'td' && cell.nodeName !== 'th') throw fail(`<${cell.nodeName}>`, st, 'inside <tr>');
+          if (!TABLE_CELL_TAGS.has(cell.nodeName)) throw fail(`<${cell.nodeName}>`, st, `inside <${c.nodeName}>`);
           cells.push(cell);
         }
-        // A <tr> of <th> with no <thead> is still the header row (the 2022 shape).
+        // A <tr> of <th> with no <thead> is still the header row.
         rows.push({ cells, inHead: inHead || (!rows.length && cells.every(x => x.nodeName === 'th')) });
         break;
       }
@@ -558,23 +715,41 @@ function cellText(cell, st) {
 /* -- figures ---------------------------------------------------------------- */
 
 function renderImageReference(node, sink, st, depth) {
-  const { taken, rest } = partition(node, ['title', 'img']);
+  // `img` is the 2025 element and `image` the 2022 one; `num` is an ATTRIBUTE in 2025 and a CHILD
+  // ELEMENT in 2022, so both are taken here and `designation` picks whichever is present.
+  const { taken, rest } = partition(node, ['title', 'num', 'img', 'image']);
   if (node.nodeName !== 'image-reference') sink.block(`**${variationLabel(node)}**`);
-  if (!taken.img) throw fail('an <image-reference> with no <img> child', st, 'as a figure');
-  const num = (node.getAttribute('num') ?? '').replace(/\s+/g, ' ').trim();
+  const img = taken.img ?? taken.image;
+  if (!img) throw fail('an <image-reference> with no <img>/<image> child', st, 'as a figure');
+  const num = designation(node, taken.num);
   const title = taken.title ? inlineChildren(taken.title, st) : '';
-  sink.block(figureLine(taken.img, num, title, st));
+  sink.block(figureLine(img, num, title, st));
+  // 2022 §11: @longdescref is NOT a reference despite the DITA-conventional name — it holds the
+  // figure's sub-part legend ("(a) quarter landings - 2 flights. (b) continuous stairway …").
+  // A figure whose legend is dropped loses which panel is which.
+  const legend = (img.getAttribute('longdescref') ?? '').replace(/\s+/g, ' ').trim();
+  if (legend) sink.block(legend);
   for (const c of rest) renderBlock(c, sink, st, depth);
 }
 
 function figureLine(img, num, title, st) {
+  // 2022's own `href` is a publishing-session path, an ERROR_IN_RESOLVING_URI string or a leaked
+  // absolute Windows authoring path — never a filename. read-2022.mjs resolves the real Images/
+  // name by its four name rules and writes it onto `src`, which is what both editions read.
   const src = (img.getAttribute('src') ?? '').trim();
-  if (!src) throw fail('an <img> with no src attribute', st, 'as a figure');
+  if (!src) throw fail(`an <${img.nodeName}> with no src attribute`, st, 'as a figure');
   st.figures.add(src);
   // "Figure A2G1" is the corpus's own citation form, so a clause citing the figure and the figure
   // itself both match one grep — acceptance test #4 holds by construction.
   const alt = `Figure${num ? ` ${num}` : ''}${title ? `: ${title}` : ''}`;
   return `![${alt}](${figureUrl(src, st)})`;
+}
+
+/** A wrapper's number: the 2025 `@num` attribute or the 2022 `<num>` child element. */
+function designation(node, numChild) {
+  const attrNum = (node.getAttribute('num') ?? '').replace(/\s+/g, ' ').trim();
+  if (attrNum) return attrNum;
+  return numChild ? (numChild.textContent ?? '').replace(/\s+/g, ' ').trim() : '';
 }
 
 function figureUrl(src, st) {
@@ -659,9 +834,11 @@ function renderEquation(node, st) {
   let out = '';
   for (const c of elementChildren(node)) {
     if (c.nodeName === 'mathML') out += flattenMath(c, st);
-    // Every equation carries a raster fallback with src="" (518 of them, and every empty-src
-    // <img> in the corpus is one). It is not a figure and must not become a CDN link.
-    else if (c.nodeName === 'img' && !(c.getAttribute('src') ?? '').trim()) continue;
+    // Every equation carries a raster fallback: 2025 writes <img src="">, 2022 writes <image
+    // content-type="gif"> with the bitmap base64'd into the element's own text and no href at all
+    // (230 in volume-one). Neither is a figure, and neither must become a CDN link.
+    else if ((c.nodeName === 'img' || c.nodeName === 'image')
+      && !(c.getAttribute('src') ?? '').trim() && !(c.getAttribute('href') ?? '').trim()) continue;
     else throw fail(`<${c.nodeName}>`, st, `inside <${node.nodeName}>`);
   }
   return out;
@@ -689,6 +866,12 @@ function flattenMath(node, st) {
     case 'semantics': return kids.filter(k => k.nodeName !== 'annotation').map(k => flattenMath(k, st)).join('');
     case 'annotation': return '';
     case 'mrow': case 'mstyle': return parts();
+    // A stacked pair of equations, not a matrix (measured: 8 tables, every one a single column —
+    // B1V1's is `C_R = 1+V_R^2` over `C_S = 1+V_S^2`). Rows separated by `;` keeps them readable
+    // on the one line this corpus renders a formula on, and distinguishable from each other.
+    case 'mtable': return kids.map(k => flattenMath(k, st)).join('; ');
+    case 'mtr': return kids.map(k => flattenMath(k, st)).join(', ');
+    case 'mtd': return parts();
     case 'mi': case 'mn': case 'mo': case 'mtext': return (node.textContent ?? '').replace(/\s+/g, ' ').trim();
 
     case 'msub': return `${wrapMath(at(0))}_${wrapMath(at(1))}`;
@@ -718,9 +901,11 @@ function elementChildren(node) {
   return out;
 }
 
+// 2025 spells the jurisdiction `state`/`type`; 2022 spells the same two things
+// `variation`/`variation-type` (§10). One label, both vocabularies.
 function variationLabel(node) {
-  const state = (node.getAttribute('state') ?? '').trim() || 'State';
-  const type = (node.getAttribute('type') ?? '').trim();
+  const state = (node.getAttribute('state') || node.getAttribute('variation') || '').trim() || 'State';
+  const type = (node.getAttribute('type') || node.getAttribute('variation-type') || '').trim();
   return `${state} variation${type ? ` (${type})` : ''}`;
 }
 
