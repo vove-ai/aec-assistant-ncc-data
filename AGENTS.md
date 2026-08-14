@@ -43,9 +43,10 @@ Filenames lead with the lowercased clause designation, so a glob is the primary 
 ```bash
 ls corpus/2025/*/c2d2-*          # → volume-one/c2d2-type-of-construction-required.md
                                  #   volume-three/c2d2-invert-levels.md
-ls corpus/2025/*/a5g4-*          # national + state variations, six files across three volumes
+ls corpus/2025/*/a5g4-*          # national + state variations — 6 files across three volumes
+                                 #   (the same glob on corpus/2022/ returns 3: the editions differ)
 ls corpus/2022/housing-provisions/11.2.2-*   # Housing Provisions clauses are decimal; dots are kept
-ls corpus/2025/volume-one/c2*    # every clause in Part C2 — 16 files
+ls corpus/2025/volume-one/c2*    # every clause in Part C2 — 16 files here, 17 in corpus/2022/
 ```
 
 A designation encodes its Section, its Part and what kind of provision it is, which makes a glob a
@@ -54,9 +55,12 @@ type, and the Code's own text names them — `G` governing (`A1G1`), `P` a Perfo
 ("Performance Requirements C1P1 to C1P9 are satisfied by…"), `V` a Verification Method, `D` a
 Deemed-to-Satisfy provision. So `ls corpus/2025/volume-one/c1p*` is Section C's Performance
 Requirements and `ls corpus/2025/volume-one/c1v*` its Verification Methods. A Specification's
-clauses carry its number (`s44c2-…` = S44C2, clause 2 of Specification 44); the Specification's own
-overview page is `spec-44-…` and a Part's is `part-c2-…`. The Housing Provisions and Livable
-Housing Design number clauses decimally instead (`10.2.1`, `1.1`).
+clauses carry its number (`s44c2-…` = S44C2, clause 2 of Specification 44), and a Part's overview
+page is `part-c2-…`. A Specification's *own* overview page — `spec-44-…` — exists only where the
+ABCB published one, which is rare and edition-specific: `corpus/2025/volume-one/` has exactly one
+`spec-*` page and `corpus/2022/volume-one/` has five, for different Specifications. Glob for it;
+its absence says nothing about the Specification. The Housing Provisions and Livable Housing Design
+number clauses decimally instead (`10.2.1`, `1.1`).
 
 Glob; do not construct a filename. A state token always precedes the title slug even when the
 ABCB's own title already names the state, which gives `corpus/2025/` 43 names of the
@@ -150,7 +154,10 @@ Each of these has been measured on the corpus, and each one changes the answer.
 `Class 1a,Class 1b,Class 3,Class 4,…,Class 10c` — every class *except* Class 2, because it is the
 clause about Class 2 buildings. The value is the ABCB's own list, transcribed verbatim; the key
 name is what tells you which way it points. It is on 3,289 clause files and it is the single most
-misreadable field here.
+misreadable field here. The verbatim transcription includes the separator, which the two editions
+punctuate differently — `Class 1a,Class 1b` in all 1,630 of `corpus/2025/`, `Class 1a, Class 1b` in
+all 1,652 of `corpus/2022/` (7 more files list one class and no comma). Match on a single class
+name, not on a run of them.
 
 **A file with `jurisdiction: aus` can still contain state-specific text.** A variation of a whole
 clause becomes its own file, with the state in the filename and in the citation
@@ -161,38 +168,61 @@ national provision. 98 files in `corpus/2025/` and 96 in `corpus/2022/` are nati
 such a block. Before relying on a national clause, check whether a variation exists for your
 jurisdiction: `ls corpus/2025/*/c2d2-*`.
 
-**And state law also arrives with no variation marker at all, in a blockquote, on a Part's overview
-page.** 24 of them, across 14 files that all carry `jurisdiction: aus`: 21 name a *different edition
-of the Code* as the one that applies in that state, 2 defer a Part's commencement, 1 points at a
-state instrument. Eighteen are labelled `**Notes — …**`.
+**And a whole Part can be disapplied by a blockquote carrying no variation marker at all.** These
+say that another edition's provisions apply instead of this one, or that a Part has not yet
+commenced. **38** of them, every one in a file that says `jurisdiction: aus` — and they are not all
+state-scoped: **16 are national**, disapplying a Part for everybody.
 
 ```
 > **Notes — Tasmania Section J Energy Efficiency**
 > In Tasmania, for a Class 2 building and Class 4 part of a building, Section J is replaced
 > with Section J of BCA 2019 Amendment 1.
                             — corpus/2022/volume-one/part-j4-building-fabric.md
+
+> In Tasmania, Part F8 is replaced with Part F8 of BCA 2022 Volume One Amendment 2.
+                            — corpus/2025/volume-one/part-f8-condensation-management.md
 ```
 
-Neither route above finds that. It carries no `variation (…)` marker, and
+**The two editions present these differently, and that is the trap.** Everything else in this
+document behaves the same way in both; this does not:
+
+| | `corpus/2022/` | `corpus/2025/` |
+|---|---|---|
+| such blockquotes | 29, in 14 files | 9, in 8 files |
+| carrying a bold label | **29** | **3** — the other 6 are bare prose |
+| state-scoped / national | 17 / 12 | 5 / 4 |
+| on a Part overview page / on a clause file | 28 / 1 | 6 / 3 |
+
+A search keyed to a label therefore finds all of NCC 2022 and a third of NCC 2025. **Anchor on the
+words, never on the label.**
+
+None of the earlier routes reaches these. They carry no `variation (…)` marker, and
 `ls corpus/2022/volume-one/part-j4-*` returns the national page and an NT one — **no Tasmanian
 file**, and no New South Wales file either, though `part-j4-building-fabric.md` carries a note for
-both. There is no `j…-tas-…` file anywhere in the corpus, so this blockquote is the only record of
+both. There is no `j…-tas-…` file anywhere in the corpus, so that blockquote is the only record of
 the Tasmanian position that exists here. An agent answering "Section J, Class 2 building, Tasmania"
 from the clause files alone gets it wrong with nothing to warn it.
 
-So when jurisdiction matters, **read the Part's overview page as well as the clause**, and grep the
-state by full name and by abbreviation — both spellings are used:
+So when jurisdiction matters, **read the Part's overview page as well as the clause** — that reaches
+34 of the 38 in either edition — and grep the words, by state and by substitution phrase. Run these
+in the edition you are answering about:
 
 ```bash
-ls corpus/2022/volume-one/part-j4-*                    # the Part page, alongside the clause file
-grep -rn "^> \*\*.*Tasmania" corpus/2022/volume-one/   # 9 files, all Part pages
-grep -rln "^> \*\*.*NSW" corpus/2025/volume-one/       # part-f1-water-management.md
+ls corpus/2025/volume-one/part-j1-*                     # the Part page, alongside the clause file
+grep -rn "^> .*Tasmania" corpus/2025/volume-one/        # 4 files (2022 volume-one: 11)
+grep -rlE "^> .*(is replaced with|may apply instead of|does not take effect until)" corpus/2025/
+                                                        # 22 files — and this one also finds the
+                                                        #   national disapplications (2022: 27)
 ```
 
+State names appear in full and abbreviated, so grep both: `NSW` and `New South Wales` both occur.
+A bare `SA` is usually "solar absorptance", not South Australia.
+
 Several of these send you to an edition this corpus does not contain — `NCC 2022 Amendment 2` for
-NSW Part F1, `BCA 2019 Amendment 1` for Tasmania's Section J, `NCC 2019 Volume Two Amendment 1` for
-Western Australia's Part H6. Follow `web_url` and say which edition governs; do not answer from the
-national Part.
+NSW Part F1 and for Class 2 buildings under NCC 2025 Section J, `BCA 2019 Amendment 1` for
+Tasmania's Section J, `BCA 2022 Volume One Amendment 2` for Tasmania's Part F8, `NCC 2019 Volume Two
+Amendment 1` for Western Australia's Part H6. Follow `web_url` and say which edition governs; do not
+answer from the national Part.
 
 **A `> ` blockquote is a boxed passage, and its `(1)` is not a sub-clause.** Blockquotes are the
 Code's callout boxes and the notes attached to a table or figure — never the clause's own numbered
@@ -201,16 +231,25 @@ own numbering. Quoting `> (2) Going and riser dimensions must be measured…` fr
 `d3d14-goings-and-risers.md` as "D3D14(2)" cites a table note as a sub-clause; the clause's real
 (2) is elsewhere in the file. Measured: 2,746 blockquotes, 599 of them starting with a plain `(1)`.
 
-**Whether a blockquote binds is decided by its text, not by its label.** The labels are an open set,
-not a taxonomy: 251 distinct ones over 1,035 labelled callouts. The six commonest — `Info`, `Notes`,
-`Application`, `Exemption`, `Limitation`, `Example`, alone or as `Kind — Title` — account for 847,
-and the remaining 188 use 136 other labels, several of them plainly binding. `**Additional
-requirements**` in `corpus/2025/housing-provisions/11.3.1-application.md` reads *"a barrier and
-handrail **must** comply with the structural requirements of Part 2.2"*. `**Exemptions**`, `**NSW
-Part F1**`, `**Intent**` and `**Explanatory Information**` are all outside the six as well, and the
-first two of those change what applies. So read the box for obligation language — "must", "is
-required to", "does not apply", "may apply instead of", a named edition or jurisdiction — and treat
-the label as the ABCB's name for the box rather than as a verdict on it.
+**Whether a blockquote binds is decided by its text, not by its label — and most NCC 2025
+blockquotes carry no label at all.** The editions differ so sharply here that a rule learned in one
+is wrong in the other:
+
+| | `corpus/2022/` | `corpus/2025/` |
+|---|---|---|
+| blockquotes | 1,264 | 1,482 |
+| carrying a bold label | 843 | 192 |
+| distinct labels | 114 | 137 |
+| covered by `Info` / `Notes` / `Application` / `Exemption` / `Limitation` / `Example` | 843 — **100%** | 4 — **2%** |
+
+NCC 2022 labels its callouts with those six kind-words and nothing else. NCC 2025 abandons them for
+titles — `**Cross-volume considerations**`, `**What is WaterMark?**`, `**NSW Part F1**`,
+`**Additional requirements**` — or for no label whatever. So the label is never the test, and in
+2025 it is usually not even present. Read the box for obligation language: "must", "is required
+to", "does not apply", "may apply instead of", a named edition or jurisdiction.
+`**Additional requirements**` in `corpus/2025/housing-provisions/11.3.1-application.md` reads
+*"a barrier and handrail **must** comply with the structural requirements of Part 2.2"* — binding,
+and one of the 137.
 
 An unlabelled blockquote following a table or figure is that table's or figure's notes, and those
 are part of it: Table D3D14's notes are what define "Private" stairways and how the dimensions are
