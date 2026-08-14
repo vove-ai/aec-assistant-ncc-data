@@ -4,9 +4,10 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import {
-  BUCKET, USER_AGENT,
+  BUCKET, USER_AGENT, WRANGLER_SPEC, MISSING_JSON,
   parseFigureUrl, assertFigureKey, collectFigureUrls, contentTypeFor, figurePackages,
   resolveLocalSource, buildMissingReport, imageListing, uploadArgs, uploadAll, headCheck, parseArgs,
+  resolveNpx, main, scanCorpus,
 } from '../src/sync-figures.mjs';
 
 const U = 'https://cdn.aecassistant.com.au/images/ncc';
@@ -44,10 +45,17 @@ test('parseFigureUrl never leaves a percent escape in the key', () => {
 });
 
 test('parseFigureUrl covers every volume both readers ship', () => {
-  for (const [slot] of figurePackages()) {
+  const slots = [...figurePackages().keys()];
+  assert.equal(slots.length, 9, 'four 2022 packages and five 2025 packages');
+  for (const slot of slots) {
     const [year, cdnKey] = slot.split('/');
     assert.equal(parseFigureUrl(`${U}/${year}/${cdnKey}/x.svg`).key, `images/ncc/${year}/${cdnKey}/x.svg`);
   }
+});
+
+test('parseFigureUrl reports a malformed percent-escape with the corpus file, not a bare URIError', () => {
+  assert.throws(() => parseFigureUrl(`${U}/2022/volume1/100%bad.svg`, 'corpus/2022/volume-one/x.md'),
+    /malformed percent-escape.*corpus\/2022\/volume-one\/x\.md|corpus\/2022\/volume-one\/x\.md.*malformed percent-escape/s);
 });
 
 test('parseFigureUrl rejects a foreign host', () => {
@@ -247,11 +255,18 @@ test('buildMissingReport is deterministic — sorted, and independent of input o
   assert.deepEqual(a.unresolved[0].referencedBy, ['corpus/a.md', 'corpus/b.md']);
 });
 
-test('buildMissingReport writes no absolute path and no timestamp', () => {
-  const { missing, listings } = reportFixture();
-  const json = JSON.stringify(buildMissingReport(missing, listings));
-  assert.ok(!/[A-Za-z]:\\/.test(json), 'a Windows absolute path leaked in');
-  assert.ok(!/\d{4}-\d{2}-\d{2}T/.test(json), 'a timestamp leaked in');
+test('buildMissingReport routes an unknown extension to unresolved instead of aborting the run', () => {
+  // Throwing from here would kill the process before the JSON was written — denying the report to
+  // the run that most needs it.
+  const listings = new Map([['2022/volume1', listing(['diagram.tiff'])]]);
+  const missing = [{
+    url: `${U}/2022/volume1/diagram.tiff`, key: 'images/ncc/2022/volume1/diagram.tiff',
+    year: '2022', cdnKey: 'volume1', filename: 'diagram.tiff', referencedBy: ['corpus/a.md'],
+  }];
+  const r = buildMissingReport(missing, listings);
+  assert.deepEqual(r.upload, []);
+  assert.equal(r.unresolved.length, 1);
+  assert.match(r.unresolved[0].reason, /no content type known/);
 });
 
 /* ---------------------------------------------------------------------------
@@ -301,9 +316,28 @@ test('uploadArgs keeps a key with spaces and parentheses as ONE argv element', (
 
 test('uploadArgs sets the content type and targets remote storage', () => {
   const args = uploadArgs({ key: 'images/ncc/2022/volume1/a.svg', localPath: 'x.svg', contentType: 'image/svg+xml' });
-  assert.deepEqual(args.slice(0, 5), ['-y', 'wrangler', 'r2', 'object', 'put']);
+  assert.deepEqual(args.slice(0, 5), ['-y', WRANGLER_SPEC, 'r2', 'object', 'put']);
   assert.equal(args[args.indexOf('--content-type') + 1], 'image/svg+xml');
   assert.ok(args.includes('--remote'));
+});
+
+test('uploadArgs pins wrangler to a major version rather than @latest', () => {
+  // `npx -y wrangler` would fetch whatever was published moments earlier and install it
+  // unattended, for a command that writes to a production CDN.
+  assert.match(WRANGLER_SPEC, /^wrangler@\d+$/);
+  assert.ok(uploadArgs({ key: 'images/ncc/2022/volume1/a.svg', localPath: 'x', contentType: 'image/svg+xml' })
+    .includes(WRANGLER_SPEC));
+});
+
+test('resolveNpx yields a real executable and an argv prefix, never a shell string', () => {
+  const { command, prefix } = resolveNpx();
+  assert.ok(typeof command === 'string' && command.length, 'a command to spawn');
+  assert.ok(Array.isArray(prefix), 'an argv array, not a command line');
+  for (const p of prefix) assert.ok(fs.existsSync(p), `${p} should exist`);
+  if (process.platform === 'win32') {
+    assert.ok(prefix.length === 1 && prefix[0].endsWith('npx-cli.js'),
+      'Windows must go through node + npx-cli.js: a .cmd shim cannot be spawned without a shell');
+  }
 });
 
 test('uploadArgs runs the key guard — a bad key never reaches wrangler', () => {
@@ -406,6 +440,85 @@ test('parseArgs accepts --upload and --allow-folded, and rejects anything else',
 });
 
 /* ---------------------------------------------------------------------------
+ * main() — the two safety properties that live in the WIRING, not in a helper.
+ * headCheck and uploadAll are tested above, but a refactor that moved the token
+ * check after the sweep, or that read the plan back out of the JSON, would
+ * leave every one of those tests green.
+ * ------------------------------------------------------------------------ */
+
+/** main() writes the real .cache/figures-missing.json; keep whatever was there. */
+function preservingMissingJson(fn) {
+  const had = fs.existsSync(MISSING_JSON);
+  const before = had ? fs.readFileSync(MISSING_JSON) : null;
+  return (async () => {
+    try { return await fn(); } finally {
+      if (had) fs.writeFileSync(MISSING_JSON, before);
+      else if (fs.existsSync(MISSING_JSON)) fs.rmSync(MISSING_JSON);
+    }
+  })();
+}
+
+const CORPUS_READY = fs.existsSync('corpus') && fs.existsSync('.cache/extracted');
+
+test('main: --upload refuses BEFORE any network call when the token is absent', { skip: !CORPUS_READY }, async () => {
+  let calls = 0;
+  const fetchImpl = async () => { calls++; return { status: 404 }; };
+  await assert.rejects(() => main(['--upload'], { fetchImpl, env: {} }), /CLOUDFLARE_API_TOKEN/);
+  assert.equal(calls, 0, 'not one HEAD request was spent discovering a missing credential');
+});
+
+test('main: the upload plan comes from the live sweep, never from figures-missing.json', { skip: !CORPUS_READY }, async () => {
+  await preservingMissingJson(async () => {
+    // Poison the cache with an object that is NOT missing according to the sweep below.
+    fs.writeFileSync(MISSING_JSON, JSON.stringify({
+      bucket: BUCKET,
+      upload: [{
+        url: `${U}/2022/volume1/poison.svg`, key: 'images/ncc/2022/volume1/poison.svg',
+        edition: '2022', volume: 'volume1', filename: 'poison.svg',
+        referencedBy: [], localPath: '.cache/nowhere/poison.svg', match: 'exact', contentType: 'image/svg+xml',
+      }],
+      unresolved: [],
+    }));
+    const attempted = [];
+    const runner = async (_cmd, args) => { attempted.push(args.join(' ')); return { code: 0, out: '', err: '' }; };
+    await main(['--upload'], {
+      fetchImpl: async () => ({ status: 200 }),          // everything is live
+      runner,
+      env: { CLOUDFLARE_API_TOKEN: 'test-token' },
+    });
+    assert.deepEqual(attempted, [], 'a stale cache file must not authorise an upload');
+  });
+});
+
+test('main: a URL the sweep says is missing IS uploaded, exactly once, with its own key', { skip: !CORPUS_READY }, async () => {
+  await preservingMissingJson(async () => {
+    const { figures } = scanCorpus();
+    const target = figures[0];                            // codepoint-first, so deterministic
+    const attempted = [];
+    const runner = async (_cmd, args) => { attempted.push(args); return { code: 0, out: '', err: '' }; };
+    await main(['--upload'], {
+      fetchImpl: async (url) => ({ status: url === target.url ? 404 : 200 }),
+      runner,
+      env: { CLOUDFLARE_API_TOKEN: 'test-token' },
+    });
+    assert.equal(attempted.length, 1, 'only the object the sweep found missing');
+    assert.ok(attempted[0].includes(`${BUCKET}/${target.key}`), attempted[0].join(' '));
+  });
+});
+
+test('main: an upload failure exits non-zero rather than reporting an aggregate success', { skip: !CORPUS_READY }, async () => {
+  await preservingMissingJson(async () => {
+    const { figures } = scanCorpus();
+    const target = figures[0];
+    await assert.rejects(() => main(['--upload'], {
+      fetchImpl: async (url) => ({ status: url === target.url ? 404 : 200 }),
+      runner: async () => ({ code: 1, out: '', err: 'Authentication error [code: 10000]' }),
+      env: { CLOUDFLARE_API_TOKEN: 'test-token' },
+    }), new RegExp(`failed to upload.*${target.filename.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}`));
+  });
+});
+
+/* ---------------------------------------------------------------------------
  * The committed corpus, against the extracted packages on this machine.
  * ------------------------------------------------------------------------ */
 
@@ -424,4 +537,14 @@ test('corpus: every published figure URL resolves to a file that exists on disk'
   const report = buildMissingReport(figures, listings);
   assert.deepEqual(report.unresolved, []);
   for (const u of report.upload) assert.ok(fs.existsSync(u.localPath), u.localPath);
+
+  // Determinism, asserted on REAL inputs: these paths come from imageListing walking the actual
+  // extracted packages, which is the only place an absolute path could enter the report.
+  const json = JSON.stringify(report);
+  // A DRIVE LETTER: one letter, colon, slash, not preceded by another letter — otherwise the `s:/`
+  // of every `https://` in the report matches and the assertion is meaningless.
+  assert.ok(!/(?<![A-Za-z])[A-Za-z]:[\\/]/.test(json), 'a Windows absolute path leaked into figures-missing.json');
+  assert.ok(!/\\\\/.test(json), 'a Windows path separator leaked in — paths must be POSIX');
+  assert.ok(!/\d{4}-\d{2}-\d{2}T/.test(json), 'a timestamp leaked in');
+  assert.deepEqual(report, buildMissingReport([...figures].reverse(), listings));
 });

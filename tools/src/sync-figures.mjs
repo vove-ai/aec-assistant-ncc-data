@@ -134,7 +134,16 @@ export function parseFigureUrl(url, where = '') {
   if (parsed.search || parsed.hash) {
     throw new Error(`sync-figures: ${url} carries a query or fragment${at} — a figure URL is a bare object path`);
   }
-  const segments = parsed.pathname.split('/').slice(1).map(s => decodeURIComponent(s));
+  // decodeURIComponent throws a bare `URIError: URI malformed` on a half-written escape such as
+  // `100%bad.svg` — outside the try above, it would surface without the corpus file every other
+  // error path here names.
+  let segments;
+  try {
+    segments = parsed.pathname.split('/').slice(1).map(s => decodeURIComponent(s));
+  } catch {
+    throw new Error(`sync-figures: ${url}${at} contains a malformed percent-escape and cannot be decoded `
+      + 'into an object key');
+  }
   const [images, ncc, year, cdnKey, filename, ...rest] = segments;
   if (`${images}/${ncc}` !== CDN_PATH_PREFIX || !year || !cdnKey || !filename || rest.length) {
     throw new Error(`sync-figures: ${url}${at} is not ${CDN_ORIGIN}/${CDN_PATH_PREFIX}/{year}/{cdnKey}/{filename}`);
@@ -271,16 +280,24 @@ export function buildMissingReport(missing, listings) {
       filename: fig.filename,
       referencedBy: [...(fig.referencedBy ?? [])].sort(byCodepoint),
     };
-    if (r.match === 'unresolved') unresolved.push({ ...base, reason: r.reason, candidates: r.candidates });
-    else {
-      resolved.push({
-        ...base,
-        localPath: r.localPath,
-        match: r.match,
-        contentType: contentTypeFor(fig.filename),
-        ...(r.note ? { note: r.note } : {}),
-      });
+    if (r.match === 'unresolved') { unresolved.push({ ...base, reason: r.reason, candidates: r.candidates }); continue; }
+    // An unknown extension is a finding about ONE figure, so it lands in `unresolved` like any
+    // other. Letting contentTypeFor throw from here would abort the whole run before the JSON was
+    // written — denying the report to the run that most needs it.
+    let contentType;
+    try {
+      contentType = contentTypeFor(fig.filename);
+    } catch (e) {
+      unresolved.push({ ...base, reason: e.message, candidates: [] });
+      continue;
     }
+    resolved.push({
+      ...base,
+      localPath: r.localPath,
+      match: r.match,
+      contentType,
+      ...(r.note ? { note: r.note } : {}),
+    });
   }
   return { bucket: BUCKET, upload: resolved, unresolved };
 }
@@ -357,8 +374,10 @@ const sleep = ms => new Promise(r => setTimeout(r, ms));
  * overwrite this tool promises not to do. One retry absorbs a blip; five server errors abort the
  * whole run rather than keep hammering a CDN that is already unwell.
  */
+export const HEAD_CONCURRENCY = 10;
+
 export async function headCheck(urls, {
-  concurrency = 10, fetchImpl = fetch, retryDelayMs = 750, abortAfterServerErrors = 5,
+  concurrency = HEAD_CONCURRENCY, fetchImpl = fetch, retryDelayMs = 750, abortAfterServerErrors = 5,
 } = {}) {
   const results = new Map();
   const queue = [...urls];
@@ -408,11 +427,18 @@ export async function headCheck(urls, {
  * Upload (operator step)
  * ========================================================================= */
 
+/**
+ * Pinned to a MAJOR version, not `wrangler@latest`. `npx -y wrangler` fetches whatever was
+ * published moments earlier and accepts the install unattended — for a command that writes to a
+ * production CDN. `@4` costs nothing and removes a whole class of surprise.
+ */
+export const WRANGLER_SPEC = 'wrangler@4';
+
 /** The argv AFTER the npx entry point. Never a command string: a key and a path both contain
  *  spaces and parentheses, and joining them into one is how the wrong file gets uploaded. */
 export function uploadArgs({ key, localPath, contentType }) {
   return [
-    '-y', 'wrangler', 'r2', 'object', 'put', `${BUCKET}/${assertFigureKey(key)}`,
+    '-y', WRANGLER_SPEC, 'r2', 'object', 'put', `${BUCKET}/${assertFigureKey(key)}`,
     '--file', localPath,
     '--content-type', contentType,
     '--remote',
@@ -458,14 +484,20 @@ const tail = (s, n = 6) => String(s).split(/\r?\n/).filter(Boolean).slice(-n).ma
  * @param {Array<object>} plan  entries of `buildMissingReport().upload`
  * @returns {Promise<{ok: number, failed: Array<{key: string, code: number, err: string}>}>}
  */
-export async function uploadAll(plan, { runner = run } = {}) {
-  const { command, prefix } = resolveNpx();
+export async function uploadAll(plan, { runner = null } = {}) {
+  // Only locate npx when we are actually going to spawn one: an injected runner must not depend
+  // on npm's layout on the machine running the test.
+  const npx = runner ? null : resolveNpx();
+  const command = npx ? npx.command : 'npx';
+  const prefix = npx ? npx.prefix : [];
+  // NB `run` is `spawn` with an argument array and no shell — never `child_process.exec`.
+  const invoke = runner ?? run;
   let ok = 0;
   const failed = [];
   for (const [i, item] of plan.entries()) {
     const args = [...prefix, ...uploadArgs(item)];
     process.stdout.write(`  [${i + 1}/${plan.length}] ${item.key} … `);
-    const r = await runner(command, args);
+    const r = await invoke(command, args);
     if (r.code === 0) { ok++; console.log('ok'); }
     else {
       failed.push({ key: item.key, code: r.code, err: r.err || r.out });
@@ -497,11 +529,20 @@ export function parseArgs(argv = []) {
 
 const bytes = n => (n < 1024 ? `${n} B` : n < 1024 * 1024 ? `${(n / 1024).toFixed(1)} KB` : `${(n / 1048576).toFixed(1)} MB`);
 
-export async function main(argv = []) {
+/**
+ * @param {string[]} argv
+ * @param {{fetchImpl?: Function, runner?: Function, env?: object}} [deps]
+ *   Injected so the two properties that live in THIS function rather than in a helper can be
+ *   tested: that `--upload` refuses before any network call, and that the upload plan is
+ *   recomputed from the live sweep instead of read back from `.cache/figures-missing.json`.
+ *   Testing `headCheck` and `uploadAll` proves the classifier and the spawn loop; it does not
+ *   prove the wiring between them, and a refactor that broke the wiring would leave those green.
+ */
+export async function main(argv = [], { fetchImpl = fetch, runner = undefined, env = process.env } = {}) {
   const opts = parseArgs(argv);
 
   // Fail on the missing credential BEFORE spending a few hundred HEAD requests to discover it.
-  if (opts.upload && !process.env.CLOUDFLARE_API_TOKEN) {
+  if (opts.upload && !env.CLOUDFLARE_API_TOKEN) {
     throw new Error('sync-figures: --upload needs CLOUDFLARE_API_TOKEN in the environment (a token with '
       + `R2 write access to the ${BUCKET} bucket). Set it and re-run; if the token reaches more than one `
       + 'account, set CLOUDFLARE_ACCOUNT_ID too. A cached `wrangler login` is deliberately not accepted — '
@@ -517,9 +558,11 @@ export async function main(argv = []) {
     console.log('  nothing to verify: this corpus publishes no figures.');
     return;
   }
-  console.log(`  HEAD ${CDN_ORIGIN}/${CDN_PATH_PREFIX}/… — 10 concurrent, read-only\n`);
+  console.log(`  HEAD ${CDN_ORIGIN}/${CDN_PATH_PREFIX}/… — ${HEAD_CONCURRENCY} concurrent, read-only\n`);
 
-  const results = await headCheck(figures.map(f => f.url));
+  // The plan comes from THIS sweep. `.cache/figures-missing.json` is an output, never an input —
+  // reading it back would let a stale file authorise an upload over a live object.
+  const results = await headCheck(figures.map(f => f.url), { fetchImpl });
   const state = f => results.get(f.url)?.state ?? 'error';
 
   for (const year of editions) {
@@ -602,7 +645,7 @@ export async function main(argv = []) {
   for (const u of report.upload) console.log(`  put ${BUCKET}/${u.key}  <- ${u.localPath}  (${u.contentType})`);
   console.log('');
 
-  const { ok, failed } = await uploadAll(report.upload);
+  const { ok, failed } = await uploadAll(report.upload, runner ? { runner } : {});
   console.log(`\nuploaded ${ok}/${report.upload.length}` + (failed.length ? `, ${failed.length} failed` : ''));
   if (failed.length) {
     throw new Error(`sync-figures: ${failed.length} object(s) failed to upload — ${failed.map(f => f.key).join(', ')}`);
