@@ -409,6 +409,13 @@ the package's `FlattenedFile.xml`, an `<abcb-map>` DITA map that is the publicat
 
 - **Section** = the nearest `topicset` ancestor's `@section-num` + `@navtitle`
   (`topichead` is the untitled front-matter grouping).
+- ⊕ **`topicset/@summary` is content, not metadata** — 17 of them (10 vol-one · 2 vol-two ·
+  5 vol-three · 0 HP), mean 158 characters, 0 in any 2025 package. It is the Section's published
+  abstract and it exists nowhere else in the corpus, so a walker that reads `@section-num` and
+  `@navtitle` and stops loses it. Verbatim, Section G: *"Section G contains requirements for
+  specific components and parts of buildings, and additional requirements for buildings in
+  bushfire-prone or alpine areas…"* (an earlier draft printed this truncated inside the example
+  above and never said it was content).
 - **Part / specification** = `topicset > part | specification`, with `num` and `title` as
   *child elements*, not attributes.
 - **`subtopic`** groups clauserefs inside a part, exactly as in 2025.
@@ -519,8 +526,10 @@ without a census.** Measured by walking every element's every attribute across a
 housing-provisions and livable-housing-design), so it really is a 2022-only attribute.
 
 **`deleted-text` holds substantive law and is easy to lose.** It is an *attribute*, so a walker
-that recurses into child elements — the natural shape — never sees it, and the elements carrying
-it have no children to make the omission visible.
+that recurses into child elements — the natural shape — never sees it. On `clause-variation` and
+`part-variation` there are no children at all, so nothing signals the omission; ⊕ on the
+`subclause` carrier there *is* a `<title>` child (`"VIC DELETE SubClause"`, §5.2), which is a
+signal but not the provision.
 
 Attributes measured on `clause-variation` (561 across the four packages):
 `variation` 561 · `variation-type` 561 · `href` 432 · `deleted-text` 96 · `xt:type`/`xt:author`/`xt:dateTime` 2.
@@ -626,15 +635,19 @@ disapplications, 96 of them carrying substantive text.** A user greps `F4D10`, g
 clause, and is never told it does not apply in NSW. In a compliance corpus that is the worst
 class of omission there is — the reader cannot tell that anything is missing.
 
-Split by `variation-type`, resolving against sibling `<stem>-<STATE>.xml` and against
-`sptc` + `@variation` (with `sptc` read in the base view — §1.2):
+Split by `variation-type`, with the target resolved by **the two rules of §5.3.1**:
 
-| package | pointers | REPLACE | DELETE | REPLACE resolved | DELETE carrying `deleted-text` | REPLACE that is 2025-draft only | **genuinely missing REPLACE** |
-|---|---|---|---|---|---|---|---|
-| volume-one | 149 | 119 | 30 | 115 | 22 | 0 | **4 — 2.7%** |
-| volume-two | 131 | 98 | 33 | 94 | 24 | 0 | **4 — 3.1%** |
-| volume-three | 145 | 114 | 31 | 109 | 22 | 0 | **5 — 3.4%** |
-| housing-provisions | 136 | 101 | 35 | 94 | 28 | **2** | **5 — 3.7%** |
+| package | pointers | REPLACE | DELETE | REPLACE resolved | DELETE carrying `deleted-text` | **REPLACE unresolved** |
+|---|---|---|---|---|---|---|
+| volume-one | 149 | 119 | 30 | **119** | 22 | **0** |
+| volume-two | 131 | 98 | 33 | **98** | 24 | **0** |
+| volume-three | 145 | 114 | 31 | **114** | 22 | **0** |
+| housing-provisions | 136 | 101 | 35 | **101** | 28 | **0** |
+
+⊕⊕ **Two earlier drafts reported a residue here — first 22–28%, then 2.7–3.7%. Both were wrong.
+Every declared state variation has a file in the package: 432/432 `clause-variation` and 47/47
+`part-variation` REPLACE pointers resolve.** The residue was an artefact of the join, not of the
+data, and §5.3.2 states the gap class that is actually real.
 
 **A DELETE pointer needs no target file, because there is no varied text to point at.** The
 provision *is* the disapplication, and where the source spells it out it is in `deleted-text`.
@@ -651,7 +664,7 @@ provision *is* the disapplication, and where the source spells it out it is in `
   `deleted-text` where present; where absent, the disapplication itself is still the fact and
   the boilerplate element text (`"NSW DELETE Clause"`) plus the parent's `sptc` is enough to
   state it. Never treat it as a broken link.
-- `variation-type="REPLACE"` → resolve to the sibling file. Failure here *is* a real gap.
+- `variation-type="REPLACE"` → resolve to the state file by §5.3.1.
 
 DELETE pointers with **no** `deleted-text`: 8 / 9 / 9 / 7 per package (e.g.
 `B1D6-construction-buildings-flood-hazard-areas.xml` SA, `B1P4-buildings-in-flood-areas.xml` SA,
@@ -660,37 +673,70 @@ jurisdiction; only the explanatory sentence is absent. All 33 carry element text
 `"<STATE> DELETE Clause"` (NT 11 · SA 8 · QLD 5 · NSW 5 · VIC 4), so the jurisdiction is always
 recoverable even without the attribute.
 
-### ⊕ Apply the base view to the *pointer* before counting a gap
+### 5.3.1 ⊕ The two rules that make every REPLACE pointer resolve
 
-A pointer can itself be a 2025-draft insertion. Two of HP's REPLACE pointers —
-`13-2-1-application-of-part-13-2.xml → WA` and `13-3-1-application-of-part-13-3.xml → WA` — are
-the corpus's **only** `clause-variation` elements carrying `xt:type="insert"` (dated 2025-01-14),
-with their boilerplate text sitting inside an `insText` range, so their base-view text is empty.
-Under §1.1's own rule they do not exist in NCC 2022 at all, and the *absence* of their target
-files is therefore correct rather than a gap.
+A naive `<stem>-<STATE>.xml` lookup misses eight files that are on disk, and two earlier drafts of
+this document reported them as gaps. Both misses have the same character as bugs fixed elsewhere
+in this document, which is why they are worth stating as rules rather than as exceptions:
 
-⊕ An earlier draft counted them as missing and reported HP at 7 (5.1%). The measured figure is
-**5 (3.7%)**, and the headline range is **2.7–3.7%, not 2.7–5.1%**. The general lesson, which
-generalises past these two files: **resolve the pointer's own edition membership before you
-resolve its target.** The same discipline §1.3 applies to clause files applies to pointers.
-
-**What is genuinely unresolved — 2.7–3.7%.** REPLACE pointers that survive the base view and
-whose target file is nowhere in the package:
+**(a) Fold case across the whole stem.** Exactly the rule §6 rule 1 needs for figures — and an
+earlier draft fixed it there and did not carry it here.
 
 ```
-all four packages:        B1P6-pressure.xml -> TAS
-                          B2D5-maximum-delivery-temperature.xml -> WA
-                          C1D3-general-requirements.xml -> WA
-                          J8D5-spa-pool-heating-and-pumping.xml -> NSW
-volume-three adds:        B2P10-pressure.xml -> TAS
-housing-provisions adds:  8-2-2-installation-of-windows.xml -> WA
+B2D5-maximum-delivery-temperature.xml  -> WA   ==>  B2D5-Maximum-delivery-temperature-WA.xml
+C1D3-general-requirements.xml          -> WA   ==>  C1D3-General-requirements-WA.xml
+8-2-2-installation-of-windows.xml      -> WA   ==>  8-2-2-Installation-of-windows-WA.xml
 ```
 
-For these the `href` is a publishing-session path that does not exist on disk and no name- or
-`sptc`-based join reaches a file. Two readings remain possible and I cannot distinguish them from
-the packages alone — the variation content was never exported, or the pointer is stale.
-**Task 10 should count and report these** (they are few enough to enumerate in the build output)
-**and must not silently include them in whatever it does with DELETE pointers.**
+**(b) A renumbered clause's state file is named with the BASE (2022) number, not the accepted
+one.** The national file's *name* may carry either number (§1.2), but the state file always
+carries the base:
+
+```
+B1P6-pressure.xml       (base sptc B1P5) -> TAS  ==>  B1P5-pressure-TAS.xml
+J8D5-spa-pool-…-.xml    (base sptc J8D4) -> NSW  ==>  J8D4-spa-pool-heating-and-pumping-NSW.xml
+B2P10-pressure.xml      (base sptc B2P9) -> TAS  ==>  B2P9-pressure-TAS.xml
+13-2-1-application-of-part-13-2.xml      -> WA   ==>  13-2-1-Application-of-Part-13.2-WA.xml
+```
+
+(the last also needs `.` ↔ `-` tolerance, the same normalisation §6 rule 4 needs.)
+
+**The rule that resolves everything: join on the host's base-or-accepted `sptc`/`num` against any
+`*-<STATE>.xml`, normalising case and `.`/`-`/`_`, and ignore `@variation`** — §5.1 already
+explains why `@variation` cannot be part of this join, since it is absent on 4–7 state files per
+package. Measured resolution: by case-folded sibling stem 93 / 80 / 92 / 83; by identity join
+26 / 18 / 22 / 18; **unresolved 0 / 0 / 0 / 0**.
+
+⊕ This also removes a self-contradiction: §5.1 enumerates `B1P5-pressure-TAS.xml`,
+`J8D4-…-NSW.xml` and `B2P9-pressure-TAS.xml` as existing files with genuine state text, quoting
+`B1P5`'s `<archive-num>2019:BP1.2, TAS Exemption 1</archive-num>` — while §5.3 three sections
+later declared those same targets "nowhere in the package".
+
+### 5.3.2 ⊕ The real gap class: the target is a 2025-only file
+
+**11 REPLACE pointers resolve to a file that is itself a 2025-only file** — empty base `sptc` by
+§1.3's own criterion — so the *provision* is absent from NCC 2022 even though the *file* exists:
+
+| package | pointers whose target is 2025-only | which |
+|---|---|---|
+| volume-one | 2 | `B2D5-Maximum-delivery-temperature-WA.xml` · `C1D3-General-requirements-WA.xml` |
+| volume-two | 2 | the same two |
+| volume-three | 2 | the same two |
+| housing-provisions | 5 | those two + `13-2-1-Application-of-Part-13.2-WA.xml` · `13-3-1-Application-of-Part-13.3-WA.xml` · `8-2-2-Installation-of-windows-WA.xml` |
+
+**Only 2 of the 11 have a pointer that also fails the base view** (HP's `13-2-1` / `13-3-1`, the
+corpus's only `clause-variation` elements carrying `xt:type="insert"`, dated 2025-01-14). **The
+other 9 survive the base view while their target does not.**
+
+⊕ An earlier draft said "resolve the pointer's own edition membership before its target". That is
+necessary but **not sufficient**, and it catches only 2 of the 11. **The check that actually
+matters is the *target's* §1.3 membership.** (The HP `13-2-1`/`13-3-1` conclusion — that they are
+correctly absent from NCC 2022 — survives, but the ground the earlier draft gave for it was
+false: the files exist.)
+
+**Rule for `read-2022.mjs`:** resolve the pointer, then apply §1.3 to the resolved target and skip
+it if its base `sptc` is empty. There is no unexplained residue to report — the whole set is the
+11 above, and every one of them is explained.
 
 ### 5.4 ⊕ `part-variation` — the same mechanism one level up, and the document was silent on it
 
@@ -701,13 +747,20 @@ nothing to look for.**
 
 `part-variation` is childless in **all 114** instances and its parent is always `part`. Split:
 
-| package | `part-variation` | DELETE | REPLACE | `href` | `deleted-text` | REPLACE target resolved | REPLACE unresolved |
-|---|---|---|---|---|---|---|---|
-| volume-one | 31 | 22 | 9 | 9 | 22 | 5 | 4 |
-| volume-two | 18 | 10 | 8 | 8 | 10 | 6 | 2 |
-| volume-three | 16 | 7 | 9 | 9 | 7 | 6 | 3 |
-| housing-provisions | 49 | 28 | 21 | 21 | 30 | 10 | 11 |
-| **total** | **114** | **67** | **47** | **47** | **69** | 27 | 20 |
+| package | elements | **distinct identities** | DELETE | REPLACE | `href` | `deleted-text` | REPLACE resolved (§5.3.1) | unresolved |
+|---|---|---|---|---|---|---|---|---|
+| volume-one | 31 | **17** | 22 | 9 | 9 | 22 | 9 | **0** |
+| volume-two | 18 | **14** | 10 | 8 | 8 | 10 | 8 | **0** |
+| volume-three | 16 | **13** | 7 | 9 | 9 | 7 | 9 | **0** |
+| housing-provisions | 49 | **29** | 28 | 21 | 21 | 30 | 21 | **0** |
+| **total** | **114** | **73** | **67** | **47** | **47** | **69** | **47** | **0** |
+
+⊕ **Two corrections to an earlier draft of this table.** It reported "20 of 47 unresolved": that
+was computed against the *containing file's* stem, which is meaningless for the 41
+`part-variation` elements that live inside `FlattenedFile.xml` rather than in a `part` file. Under
+§5.3.1's rules all **47/47** resolve. And the element counts are inflated by those duplicates —
+**114 elements are 73 distinct `(num, state, variation-type)` identities**, so "emit 67
+Part-level state units" over-emits unless the reader dedupes.
 
 **⊕ The clean "href on exactly REPLACE, `deleted-text` on exactly DELETE" split does *not*
 generalise.** Cross-tabulated: every DELETE has `deleted-text` and no `href`; every REPLACE has
@@ -738,17 +791,29 @@ does not apply and from 1 October 2023 Section J of NCC 2019 applies."
 **Rule for `read-2022.mjs` — identical in shape to §5.3's, and it needs writing explicitly
 because 47 REPLACE pointers currently have no rule at all:**
 
+- **Dedupe on `(num, state, variation-type)` first** — 114 elements, 73 identities.
 - `part-variation[@variation-type="DELETE"]` → **emit a Part-level state unit**, body from
-  `deleted-text`. 67 of these; every one has the attribute.
-- `part-variation[@variation-type="REPLACE"]` → resolve `@href` to the state Part file the same
-  way a clause REPLACE resolves. 27 of 47 resolve by sibling filename; **20 do not** and belong
-  in the same build report as §5.3's residue.
+  `deleted-text`. 67 elements, every one carrying the attribute.
+- `part-variation[@variation-type="REPLACE"]` → resolve to the state Part file by §5.3.1.
+  **47/47 resolve.**
 - Where both attributes are present (2 in HP), `variation-type` decides; do not infer from the
   attributes.
 
-Note these appear **both** in `FlattenedFile.xml` and in the standalone `part` root files, so a
-walker that reads only one of the two sources still sees them — but it will see them twice if it
-reads both.
+⊕ **Which source to read — an earlier draft got this backwards.** These elements appear both in
+`FlattenedFile.xml` and in the standalone `part` root files, and the earlier note implied either
+source alone would do. Measured, per package (both / FlattenedFile-only / standalone-only):
+
+```
+volume-one          14 / 0 / 3        volume-two           4 / 0 / 10
+volume-three         3 / 0 / 10       housing-provisions  20 / 0 / 9
+```
+
+**0 identities are FlattenedFile-only; 32 are standalone-only.** In volume-two, volume-three and
+HP the standalone-only set includes the whole `J4`–`J9 | NT | DELETE` run
+(`"…Section J is replaced with Section J of BCA 2009…"`); vol-one's three are
+`10.7 | NT | REPLACE` and `B4 | QLD` / `B4 | NSW | REPLACE`. **Reading only the standalone `part`
+files is safe; reading only `FlattenedFile.xml` loses 32 Part-level state variations.** Reading
+both requires the dedupe above.
 
 ---
 
@@ -829,15 +894,44 @@ the *stated rule* was not, and the cause was misattributed:
   stem has hyphens. The earlier draft called it opaque-asset-id residue. It is not; rule 4
   catches it, and it is the only file in the corpus needing rule 4.
 
-**Genuine residue is 2 per package** — the same pair everywhere:
-`image-S37C8-permanent-external-vertical-shading–measurement-of-D,-W-and-H.xml`
-(`image-S37C7b-…` in HP) and `image-S46C2-explanatory-calculation-of-fan-performance-ratio.xml`.
-Their hrefs are genuinely opaque asset ids (`10158_0.2.0.jpg`, `10145_0.2.0.png`) with no name
-anywhere to join on.
+### ⊕ The figure join is edition-dependent, and that dissolves the "residue"
 
-⊕ Extensions of the **resolved disk files** (an earlier draft's `.eps (0/0/1/2)` was neither an
-href count nor a disk count): `.svg` 225 / 190 / 224 / 329, `.eps` **0 / 0 / 1 / 3**, `.pdf` 2
-each (the covers).
+A wrapper can carry **two** `<image>` children, one marked `delete` and one marked `insert` —
+the NCC 2022 figure and its 2025 replacement. `image-creative-commons-by-nd.xml`, verbatim:
+
+```xml
+<image-reference id="_e7bc3178-…">
+  <num/><title/>
+  <image alt="Creative Commons" href="…/creative-commons-by-nd (OLD).svg"
+         xt:dateTime="2024-10-22T10:02:11" xt:type="delete"/>
+  <image href="…/cc-by NCC 2025.svg"
+         xt:dateTime="2024-10-31T12:56:37" xt:type="insert"/>
+</image-reference>
+```
+
+**§1.1's mechanism-3 rule applies to `<image>` children too.** Wrappers with more than one
+`<image>`: 5 / 5 / 6 / 9, every one tracked-marked (`delete+insert` 3/3/4/5, `-+insert` 2/2/2/4).
+
+Two consequences an earlier draft got wrong:
+
+- **9 wrappers per package have *no* image in the base view** — their only `<image>` child is an
+  `insert` dated 2024, i.e. the figure itself is a 2025 addition. In vol-one these are the eight
+  F8D5c / F8D6a–c roof-space explanatory figures (shipped twice, once under the 2022 numbering
+  `F8D6a` and once under the 2025 numbering `10.8.4a`) **plus
+  `image-S37C8-permanent-external-vertical-shading–measurement-of-D,-W-and-H.xml`**.
+  ⊕ That last one was reported as unjoinable "residue" in two earlier drafts. It is not residue:
+  in NCC 2022 it correctly has no figure at all.
+- **The one wrapper that genuinely fails every name rule is
+  `image-S46C2-explanatory-calculation-of-fan-performance-ratio.xml`** (href `10145_0.2.0.png`) —
+  and even it resolves on its **leading spec-clause token**, `S46C2` →
+  `image-S46C2-Calculation-of-fan-performance-ratio.png`, in all four packages. ⊕ "No name
+  anywhere to join on" was true of the `href` only. Add the token rule and the residue is **0**.
+
+⊕ Extensions of the **distinct** resolved disk files, base view: `.svg` 217 / 182 / 216 / **319**,
+`.pdf` 2 each (the covers), `.eps` 0 / 0 / 1 / 3. (An earlier draft's `.eps (0/0/1/2)` was neither
+an href count nor a disk count, and its `.svg` HP figure double-counted: HP has 334 resolving
+wrappers but only **332 distinct files**, because `image-13-3-2a-orientation-sectors.svg` and
+`image-13-3-2b-method-of-measuring-p-and-h.svg` are each shared by two wrappers.)
 
 `<image href>` shapes across all wrappers: publishing-session path (the norm),
 `ERROR_IN_RESOLVING_URI:<name>` (51–91 per package), and **absolute Windows authoring paths
@@ -852,11 +946,15 @@ leaked into the published XML** (55–89 per package) —
 Note the **nested `image > image`** (260 occurrences): an outer vector reference with a raster
 fallback inside it. Take the outer.
 
-⊕ **7 / 7 / 8 / 11** files per package in `Images/` are never referenced by any wrapper once all
-four rules are applied (an earlier draft said 9–14, measured before rules 3 and 4 existed — the
-covers and the dotted-stem `.eps` were being counted as unreferenced). What remains is the `(OLD)`
-variants, two superseded `S37C7`/`S46C2` assets, and — in a 2022 package —
-`image-cc-by NCC 2025.svg`.
+⊕ **Which `Images/` files are unreferenced depends on the view, and an earlier draft's list was
+wrong in both directions.** In the **base (NCC 2022) view**: **15 / 15 / 16 / 19** per package.
+They are the eight 2025-only roof-space figures above, the `(OLD)` variants, the superseded
+`S37C7`/`S37C7b`/`S46C2` assets, and — correctly for a 2022 corpus — **`image-cc-by NCC 2025.svg`**,
+which is referenced only by the *inserted* `<image>` of the wrapper quoted above.
+
+The earlier draft's claim that "the `(OLD)` variants are never referenced" was exactly backwards:
+`image-creative-commons-by-nd (OLD).svg` **is** the NCC 2022 figure, reached through the `delete`-
+marked `<image>` that only the base view keeps. In the accepted view the two swap places.
 
 ---
 
@@ -1041,10 +1139,17 @@ Measured across all four packages, `facet` has **four** attribute names:
 | `climate` | **737** | `Climate zone 1` … `Climate zone 8` (zone 8 172 · zone 4 91 · zone 1 85 · zone 5 81 · zone 2 78 · zone 3 78 · zone 6 76 · zone 7 76) |
 
 `building` is the 2025 `building`-attribute equivalent and clearly belongs in frontmatter.
-**`climate` has no 2025 equivalent at all**, and "this clause applies only in climate zones 6–8"
-is exactly the kind of scoping an AEC agent must not lose — 737 marks over ~1,300 clauses per
-package is not a rounding error. `inv:access` / `ns0:access` are the same attribute under two
-prefixes (`urn:xpressauthor:xpressdocument`), single-valued, and look like authoring metadata.
+
+⊕ **`climate` DOES have a 2025 equivalent** — an earlier draft said it had none, which was another
+conclusion kept while its number was checked. Measured: the 2025 packages carry `clause/@climate`
+(18 vol-one · 3 vol-two · 1 vol-three · 65 HP · 0 LHD), comma-joined on the clause itself, exactly
+parallel to `clause/@building`. So 2022's `facet/@climate` is the 2022 *form* of a concept the
+2025 pipeline already meets — which strengthens rather than weakens the case for emitting it:
+"this clause applies only in climate zones 6–8" is scoping an AEC agent must not lose, and both
+editions should carry it the same way.
+
+`inv:access` / `ns0:access` are the same attribute under two prefixes
+(`urn:xpressauthor:xpressdocument`), single-valued (`external`), and look like authoring metadata.
 Recommendation for Task 10: emit `building` and `climate`; drop `access`; do not blanket-skip
 `facet`.
 
@@ -1171,16 +1276,38 @@ page/page            p+section+title ×24 · p+title ×20 · p+table-reference+t
 - **Namespace prefixes are not stable, and one form has no namespace at all.**
   `urn:xpressauthor:trackchanges` binds to `xt` and to `ns0` in the same package, and the
   tracked-change `type` attribute also appears **bare** (355/301/358/476 per package) with
-  `namespaceURI === null`, because XML attributes do not inherit a default namespace. Match on
-  local name **plus (trackchanges namespace OR no namespace)** — see §1.1. Matching on the
-  namespace URI alone drops every bare one, and they sit on whole units.
-- **Some content is carried in attributes, where a child-element walker cannot see it.**
-  `@deleted-text` — **169 corpus-wide, on `clause-variation` 96, `part-variation` 69 and
-  `subclause` 4** (§5.0) — is a whole state disapplication on an element with no child nodes at
-  all; `facet/@climate` (737) scopes a clause to climate zones; `image/@alt` (1130) is the
-  figure's alt text. None of these have an element to recurse into. Before writing "X does not
-  occur here", census X across every element — that is how the `part-variation` half of
-  `deleted-text` was missed once already.
+  `namespaceURI === null`, because XML attributes do not inherit a default namespace. Matching on
+  the namespace URI alone drops every bare one, and they sit on whole units. The complete rule —
+  ⊕ an earlier draft omitted the value test, and **the value test is what does most of the work**:
+
+  > **local name `type`, in the trackchanges namespace or in no namespace, AND value ∈
+  > {`insert`, `delete`}.**
+
+  Without the value clause the predicate matches **25,714** attributes in volume-one of which only
+  8,299 are marks — **17,415 false positives, every one an `xref/@type`** (`abcb-glossentry`,
+  `ncc-clause`, …). Same shape in the other three: 23,802/6,917 · 25,386/8,128 · 24,892/6,931.
+- **Some content is carried in attributes, where a child-element walker cannot see it.** Measured
+  by censusing every attribute value's mean length, the prose-bearing ones are:
+
+  | attribute | n | on | mean chars | in 2025? |
+  |---|---|---|---|---|
+  | `@deleted-text` | 169 | `clause-variation` 96 · `part-variation` 69 · `subclause` 4 | 118.6 | no |
+  | `image/@alt` | 1130 | `image` | 51.4 | no |
+  | **`image/@longdescref`** | **29** (7/7/7/8) | `image` | 63.6 | no |
+  | **`topicset/@summary`** | **17** (10/2/5/0) | `topicset` | 157.9 | no |
+  | `facet/@climate` | 737 | `facet` | — | **yes** (as `clause/@climate`) |
+
+  **`@longdescref` is not a reference despite the DITA-conventional name** — it holds the figure's
+  sub-part legend. Verbatim from `image-11-2-1-stairway-terms.xml`:
+  `"(a) quarter landings - 2 flights. (b) continuous stairway - 1 flight (90 degree change in
+  direction)."`, and elsewhere `"(a) barrier not required. (b) barrier required."` A figure whose
+  legend is dropped loses which panel is which. `topicset/@summary` carries the Section abstracts
+  (§4).
+- **Before writing "X does not occur here", census X across every element.** This document has
+  made that mistake twice — once claiming `deleted-text` was `clause-variation`-only (it is on
+  three elements), once reporting an attribute-name count read off a truncated listing. The
+  corpus has **92 qualified attribute names / 85 excluding the seven `xmlns:*` pseudo-attributes /
+  81 local names**, over 455 distinct element@attribute pairs.
 - **`conref` means two different things.** Bare filename inside `FlattenedFile.xml`
   (1,217 in vol-one); publishing-session path everywhere else.
 - **Broken references are shipped in the source**, not introduced by us:
@@ -1230,15 +1357,27 @@ rather than transcribed:
 | round | sections |
 |---|---|
 | 1 | §1.1 (mechanism 2 + 3), §1.2 (renumber direction), §4.1 (F3→F1 narrative), §5 · §5.1 · §5.3 (state variations), §6 (figure rules), §8 (amendment string), §9.1 (`facet`), §10 (`building`), §11 (namespace rule) |
-| 2 | §1.1 (carrier elements), §5.0 (**new** — `deleted-text` census), §5.3 (base view on pointers; HP 7→5), §5.4 (**new** — `part-variation`), §6 (rule statement, `.eps`, unreferenced), §8 (string claim), §10 (three new rows), §11 (attribute bullet), §12 (this ledger) |
+| 2 | §1.1 (carrier elements), §5.0 (**new** — `deleted-text` census), §5.2 (`subclause` carrier), §5.3 (base view on pointers), §5.4 (**new** — `part-variation`), §6 (rule statement, `.eps`, unreferenced), §8 (string claim), §10 (two new rows + one rewritten), §11 (attribute bullet), §12 (ledger) |
+| 3 | §5.0 (`subclause` has a `<title>`), §5.3 + **§5.3.1 · §5.3.2** (all pointers resolve; the real gap class is the *target*'s membership), §5.4 (47/47 resolve · 73 identities · which source to read), §6 (edition-dependent `<image>` selection; residue dissolved; unreferenced recomputed), §9.1 (`climate` **does** exist in 2025), §11 (value predicate; `longdescref`; `summary`; census figure), §12 (this ledger) |
 
 Reproduced exactly on independent re-derivation and **not** touched: the root-element census
 (§2), the 82-element inventory (§9), the package overlap (§3), the tracked-change totals, the
 glossary census (§7), the map outline (§4), the membership classification (§4.1) and the
 19 + 12 `normalize.mjs` delta (§9.1).
 
-**The method error worth carrying forward.** Round 2's Critical was the same family as the finding
-it was fixing: having found `deleted-text` on `clause-variation`, the draft asserted it appeared
-nowhere else instead of censusing. §12 step 10 now exists so that class of claim is never made
-from a single site again — **if the document says an attribute or element does not occur
-somewhere, that sentence is backed by a census, not by not having looked.**
+### The failure mode this document kept repeating
+
+Three rounds, three variants of one mistake — worth stating because a reader who trusts this
+document should know what it was checked *for*:
+
+1. **Asserting absence without a census.** `deleted-text` declared `clause-variation`-only when it
+   is on three elements. Fixed by §12 step 10.
+2. **Reporting the size of a truncated view.** The attribute-name count was read off a listing cut
+   short by `head`; the real figures are 92 / 85 / 81.
+3. **Re-measuring the number and keeping the sentence.** Twice a corrected figure landed inside
+   prose that still asserted the superseded conclusion — the state-variation "gaps" that were
+   really a case-folding bug already fixed for figures two sections away, and `climate` "has no
+   2025 equivalent" surviving beside a freshly measured 2025 count.
+
+The discipline that catches all three: **for every sentence kept, re-derive the claim it makes,
+not just the number in it.** A number can reproduce while the sentence around it stays false.
