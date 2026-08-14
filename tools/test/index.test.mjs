@@ -151,9 +151,12 @@ test('the root index names the pinned source release', () => {
   assert.equal(SOURCE_RELEASE, 'ncc-2026-07');
 });
 
+// The seam is exercised through an edition nobody has measured yet, rather than by pinning a
+// real one to null: both shipped editions now have measured values, and a test that asserted
+// otherwise would have to be deleted the moment the next edition is measured.
 test('an edition with no measured amendment state gets a marked seam, never an invented value', () => {
-  const md = byPath(buildIndexes(new Map([['2022', []]]), { tree: [{ dir: '2022/volume-one', files: 0 }] })).get('INDEX.md');
-  assert.equal(AMENDMENTS.get('2022'), null, 'the 2022 amendment state is not yet measured');
+  const md = byPath(buildIndexes(new Map([['2028', []]]), { tree: [{ dir: '2028/volume-one', files: 0 }] })).get('INDEX.md');
+  assert.equal(AMENDMENTS.get('2028'), undefined, 'a hypothetical unmeasured edition');
   assert.match(md, /not yet determined/i);
   assert.ok(!/Amendment \d/.test(md), 'the seam must not name an amendment nobody measured');
 });
@@ -162,6 +165,16 @@ test('a measured amendment state is stated with its provenance', () => {
   const md = byPath(build([A5G7])).get('INDEX.md');
   assert.ok(AMENDMENTS.get('2025'), '2025 has a measured dataset version');
   assert.ok(md.includes(AMENDMENTS.get('2025')), md);
+});
+
+// Measured by the 2022 content-model task (docs/content-model-2022.md §8). Pinned because the
+// naive reading of the source — grep for the all-gender provisions, find a hit, conclude
+// "Amendment 2" — is wrong, and stating the wrong amendment is a compliance error, not a typo.
+test('the 2022 amendment state is the measured one, and is not an amendment', () => {
+  assert.equal(AMENDMENTS.get('2022'), 'NCC 2022 — as first published, no amendment');
+  const md = byPath(buildIndexes(new Map([['2022', []]]), { tree: [{ dir: '2022/volume-one', files: 0 }] })).get('INDEX.md');
+  assert.ok(md.includes(AMENDMENTS.get('2022')), md);
+  assert.ok(!/not yet determined/i.test(md), 'the seam must be gone now that 2022 is measured');
 });
 
 test('every edition directory present in the tree is listed, even if this run did not build it', () => {

@@ -25,20 +25,28 @@ export const SOURCE_RELEASE = 'ncc-2026-07';
 /**
  * Edition -> amendment / dataset state, as printed in `corpus/INDEX.md`.
  *
- * `null` is a SEAM, not a default: it renders as an explicit "not yet determined" line rather
- * than as a plausible-looking value. NCC 2022's amendment state is not stated anywhere in the
- * ABCB read-me and has to be measured from the content (the F4D4 all-gender provisions entered
- * at Amendment 2) — that measurement is the 2022 content-model task's Step 6, and filling this
- * constant is how its answer reaches the corpus. Guessing "Amendment 2" here would put an
- * unverified claim about which law applies into a compliance corpus.
+ * `null` remains available as a SEAM for any edition added later: it renders as an explicit
+ * "not yet determined" line rather than as a plausible-looking value. Both current entries are
+ * measured, because guessing here would put an unverified claim about which law applies into a
+ * compliance corpus.
+ *
+ * 2022 was resolved by the content-model measurement (docs/content-model-2022.md §8). The naive
+ * test — grep the packages for the F4D4 all-gender provisions — returns a hit and would have
+ * concluded "Amendment 2". It is wrong: the packages are dual-state editorial files carrying the
+ * NCC 2025 draft on top of NCC 2022 as tracked changes, and every all-gender occurrence sits
+ * inside an `xt:insText` range authored in 2024/2025. In the base (NCC 2022) view the phrase
+ * does not occur at all. Positive evidence for "no amendment": the packages' own
+ * `table-1-history-of-adoption-*` ends at "NCC 2022 | 1 May 2023", while the published NCC 2025
+ * corpus's copy of that table adds "NCC 2022 Amendment 1 | 1 May 2025" and "NCC 2022
+ * Amendment 2 | 29 July 2025" — both later than this text, and neither present in it.
  */
 export const AMENDMENTS = new Map([
   // Measured, not guessed: every 2025 package in tools/checksums.json is `…-v1.2.zip`.
   ['2025', 'NCC 2025 — ABCB XML dataset v1.2'],
-  ['2022', null],
+  ['2022', 'NCC 2022 — as first published, no amendment'],
 ]);
 
-const SEAM = '_Not yet determined — measured and recorded by the 2022 content-model task._';
+const SEAM = '_Not yet determined — measure this edition before stating an amendment for it._';
 
 /** Codepoint sort. Never localeCompare — locale-dependent order is not reproducible. */
 const byCodepoint = (a, b) => (a < b ? -1 : a > b ? 1 : 0);
