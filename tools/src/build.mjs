@@ -14,11 +14,16 @@
 //     verify a citation. weblinks.mjs is written to fail CLOSED — where the data does not
 //     identify one page it answers null rather than a plausible wrong page — and this assertion
 //     is the control that turns those nulls into a human ruling instead of a quiet omission.
+//     Rulings that have been MADE are enumerated in NULL_WEB_URL_CLAUSES, one entry per
+//     edition+volume+clause+state with its evidence, and are printed in the report; a null that
+//     is not on that list still fails.
 //  3. PARITY MUST RECONCILE. Content units by immediate parent, summed with the table-references
 //     rendered inline, must equal docs/content-model-2025.md's measured table exactly. A delta is
 //     units lost between the XML and the corpus, so it FAILS the build rather than printing a
 //     warning into a scrollback nobody reads. Whole documents only — a slice has nothing to
-//     compare against. See parityCheck.
+//     compare against. See parityCheck. An edition whose source document has no transcribable
+//     equivalent of that table says so by name in PARITY_UNAVAILABLE, with the measurement and
+//     with where its parity IS checked instead; an edition in neither still fails on every unit.
 //  4. ANY NORMALIZE ERROR STOPS THE BUILD, naming the unit. Silently dropping content from a
 //     compliance corpus is the worst outcome available here.
 //
@@ -41,6 +46,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { DOCUMENTS_2025, readDocument2025 } from './read-2025.mjs';
+import { DOCUMENTS_2022, readPackage2022 } from './read-2022.mjs';
 import { normalizeUnit } from './normalize.mjs';
 import { emitUnit, unitRelPath } from './emit.mjs';
 import { buildLinkIndex, resolveWebUrl } from './weblinks.mjs';
@@ -50,15 +56,28 @@ import { fetchAll } from './fetch.mjs';
 const CORPUS = 'corpus';
 
 /** Both editions this repo covers. An edition here but not in EDITIONS has no reader yet. */
-const KNOWN_EDITIONS = ['2022', '2025'];
+export const KNOWN_EDITIONS = ['2022', '2025'];
 
 /**
- * Editions with a reader. Adding NCC 2022 is one entry plus `read-2022.mjs`: its per-file DITA
- * layout differs completely from 2025's single contents.xml, which is exactly why `readUnits`
- * owns its own IO instead of taking an XML string — the orchestration below never learns how an
- * edition is stored, only that it yields RawUnits carrying `sectionNum`, `volume` and `kind`.
+ * Editions with a reader. NCC 2022 is one entry plus `read-2022.mjs`: its per-file DITA layout
+ * (11,331 files, a publication map, state variations in separate files) differs completely from
+ * 2025's single contents.xml, which is exactly why `readUnits` owns its own IO instead of taking
+ * an XML string — the orchestration below never learns how an edition is stored, only that it
+ * yields RawUnits carrying `sectionNum`, `volume` and `kind`.
+ *
+ * `readUnits(doc, {diagnostics})` is handed an object to FILL IN. 2025 ignores it; 2022 records
+ * what the source itself loses (see droppedCitations in the report). It is passed rather than
+ * returned so the reader contract stays "RawUnits in, nothing else out" for both editions.
+ *
+ * Neither reader is given `sections`: the build slices with its own `inScope`, because it needs
+ * the FULL producible set to know which files on disk are stale (see planReconcile).
  */
 export const EDITIONS = new Map([
+  ['2022', {
+    year: '2022',
+    documents: DOCUMENTS_2022,
+    readUnits: (doc, opts = {}) => readPackage2022(`.cache/extracted/${doc.pkg}`, doc, opts),
+  }],
   ['2025', {
     year: '2025',
     documents: DOCUMENTS_2025,
@@ -88,9 +107,91 @@ export const PARITY = new Map([['2025', new Map([
   ['livable-housing', new Map([['part', 15], ['section', 1], ['page', 1]])],
 ])]]);
 
+/**
+ * Editions for which assertion 3 has no transcribable target, each with the measurement that says
+ * why — never a label. An edition that is in NEITHER `PARITY` nor here still fails on every unit
+ * it produces (`expected` defaults to an empty Map, so each row is a positive delta), which is the
+ * right answer for "nobody has transcribed the table yet".
+ *
+ * The exemption does not weaken the corpus: it moves the check, and names where to.
+ */
+export const PARITY_UNAVAILABLE = new Map([
+  ['2022',
+    'docs/content-model-2022.md publishes no equivalent of the 2025 table. Its §9.2 containment '
+    + 'census counts parent->child ELEMENTS across all four packages COMBINED and over the raw '
+    + 'dual-state view, so it is neither per-document nor NCC 2022. And the metric itself does not '
+    + 'transfer: a 2022 unit is the ROOT of its own DITA file, so its immediate parent is the XML '
+    + 'document node — measured on volume-one, the three rows this build would print are '
+    + '`#document 1250`, `clause 24` (the nested state DELETE variations) and `abcb-map 513` (the '
+    + 'map-inlined glossary), which reconciles against nothing anyone measured independently. '
+    + 'Parity for 2022 is enforced instead in tools/test/read-2022.test.mjs, which checks the '
+    + "reader's census against §1.3 / §4.1 / §5.3 / §5.4 / §6.1 / §7 per package, and its emission "
+    + 'against that census — a stronger check than this one, because those numbers were measured '
+    + 'from the XML by a document that had not seen this pipeline.'],
+]);
+
 /** The unit kinds the parity table counts. `page` units (overviews, front matter) are not units
  *  in content-model-2025.md's sense and are deliberately excluded from the parity column. */
 const PARITY_KINDS = new Set(['clause', 'glossary']);
+
+/**
+ * R50 — the enumerated exceptions to assertion 2 (no clause ships without a `web_url`).
+ *
+ * The assertion stays absolute: a null clause `web_url` that is NOT on this list fails the build.
+ * What the list adds is the ability to record a null that has been RULED ON — a clause the ABCB
+ * publishes no page for — instead of choosing between failing every future build and weakening the
+ * assertion for all clauses at once.
+ *
+ * Each entry is keyed on all four identifying attributes and carries the evidence that was checked.
+ * That is deliberate: an exception whose evidence is a shrug is indistinguishable from a bug, and
+ * an exception keyed loosely (on the clause id alone, say) would silently exempt every other
+ * jurisdiction's copy of the same clause the moment one of THEM stopped resolving.
+ */
+export const NULL_WEB_URL_CLAUSES = [
+  {
+    edition: '2022',
+    volume: 'volume-three',
+    clause: 'E1D1',
+    state: 'TAS',
+    evidence:
+      'ncc.abcb.gov.au publishes no Tasmania-scoped page for Volume Three Part E1. Measured in '
+      + 'tools/data/weblinks-2022.json: the crawl holds twelve TAS volume-three part pages — a1, '
+      + 'a4, a5, b1, b2, b7, c2, c3, c4, e2, e3, e4 — and none for e1; and '
+      + '.../volume-three/9-tasmania/e1-facilities returns HTTP 404 (checked 2026-08-14). '
+      + 'weblinks.mjs refuses the national Part E1 page on purpose — it carries a link and a '
+      + 'client-side state filter, not the Tasmanian text — so a URL here would be a wrong '
+      + 'citation rather than a missing one.',
+  },
+];
+
+// A malformed entry is refused at import, not at the moment it would have exempted something: an
+// exception missing its evidence must never be usable, and a build is the wrong place to find out.
+for (const e of NULL_WEB_URL_CLAUSES) {
+  for (const k of ['edition', 'volume', 'clause', 'evidence']) {
+    if (typeof e[k] === 'string' && e[k].trim()) continue;
+    throw new Error(`build: NULL_WEB_URL_CLAUSES entry ${JSON.stringify(e)} has no ${k} — an exception `
+      + 'to the web_url assertion must name the edition, volume and clause it covers and state the evidence for it');
+  }
+  if (!('state' in e)) {
+    throw new Error(`build: NULL_WEB_URL_CLAUSES entry for ${e.clause} does not state a state — write `
+      + 'null for a national clause; an omitted key would exempt every jurisdiction at once');
+  }
+}
+
+/**
+ * The R50 entry covering this unit's null `web_url`, or null.
+ *
+ * @param {string} editionKey
+ * @param {object} unit  a RawUnit
+ * @returns {?object} the matching NULL_WEB_URL_CLAUSES entry
+ */
+export function nullWebUrlException(editionKey, unit) {
+  const state = unit?.state ? String(unit.state).toUpperCase() : null;
+  return NULL_WEB_URL_CLAUSES.find(e => e.edition === String(editionKey)
+    && e.volume === unit?.volume
+    && e.clause === unit?.id
+    && (e.state ? e.state.toUpperCase() : null) === state) ?? null;
+}
 
 /**
  * A parity delta, as a build FAILURE rather than a printed advisory.
@@ -107,6 +208,7 @@ const PARITY_KINDS = new Set(['clause', 'glossary']);
  * @returns {?string} a report naming every disagreeing row, or null when everything reconciles.
  */
 export function parityCheck(editionKey, parityByDoc) {
+  if (PARITY_UNAVAILABLE.has(editionKey)) return null;
   const expectedAll = PARITY.get(editionKey) ?? new Map();
   const rows = [];
   for (const [docKey, p] of parityByDoc) {
@@ -470,6 +572,8 @@ function buildEdition(editionKey, opts) {
   const producible = new Set();
   const unresolvedClauses = [];
   const unresolvedOther = [];
+  const permittedNullClauses = [];
+  const droppedCitations = [];
   const sectionsSeen = new Set();
   const stats = {
     editionKey,
@@ -482,7 +586,13 @@ function buildEdition(editionKey, opts) {
   };
 
   for (const doc of docs) {
-    const all = ed.readUnits(doc);
+    // The reader is handed the WHOLE document and an out-parameter for what the source loses. Both
+    // are read before the slice filter, so `droppedCitations` reports what this DOCUMENT loses,
+    // not what this run happened to emit — which is the honest scope for a loss the citing clause
+    // cannot detect.
+    const diagnostics = {};
+    const all = ed.readUnits(doc, { diagnostics });
+    for (const d of diagnostics.droppedCitations ?? []) droppedCitations.push({ doc: doc.key, ...d });
     for (const u of all) {
       producible.add(unitRelPath(u));
       sectionsSeen.add(String(u.sectionNum ?? ''));
@@ -511,7 +621,14 @@ function buildEdition(editionKey, opts) {
       seen.total++;
       if (webUrl) seen.resolved++;
       stats.webUrl.set(unit.kind, seen);
-      if (!webUrl) (unit.kind === 'clause' ? unresolvedClauses : unresolvedOther).push({ doc: doc.key, unit });
+      if (!webUrl) {
+        // R50: a clause null is a build failure UNLESS it is one of the enumerated, evidenced
+        // exceptions — and a permitted one is still printed, because an exception nobody can see
+        // in the report is a hole rather than a ruling.
+        const exception = unit.kind === 'clause' ? nullWebUrlException(editionKey, unit) : null;
+        if (exception) permittedNullClauses.push({ doc: doc.key, unit, exception });
+        else (unit.kind === 'clause' ? unresolvedClauses : unresolvedOther).push({ doc: doc.key, unit });
+      }
 
       const emitOpts = { citationPrefix: doc.citationPrefix, webUrl };
       const { relPath, content } = emitUnit(unit, normalized, emitOpts);
@@ -577,6 +694,8 @@ function buildEdition(editionKey, opts) {
     ownedDirs: new Set([...producible].map(p => p.split('/')[1])),
     indexEntries,
     unresolvedOther,
+    permittedNullClauses,
+    droppedCitations,
     stats: { ...stats, duplicates: resolved.duplicates, merges: resolved.merges, paths: resolved.write.size },
   };
 }
@@ -662,6 +781,19 @@ const pct = (n, d) => (d ? `${((n / d) * 100).toFixed(1)}%` : 'n/a');
 const pad = (s, n) => String(s).padEnd(n);
 const padL = (s, n) => String(s).padStart(n);
 
+/** Greedy word wrap, for the two blocks that print a prose ruling rather than a table. Splits on
+ *  spaces only, so it is deterministic and never breaks a filename or a URL. */
+function wrap(text, indent = '  ', width = 78) {
+  const lines = [];
+  let line = indent;
+  for (const word of String(text).split(/\s+/).filter(Boolean)) {
+    if (line !== indent && line.length + 1 + word.length > width) { lines.push(line); line = indent; }
+    line += line === indent ? word : ` ${word}`;
+  }
+  if (line !== indent) lines.push(line);
+  return lines;
+}
+
 /**
  * @param {object} built  a buildEdition result
  * @param {?{written, removedFiles, removedDirs, kept}} io  null when nothing was written — either
@@ -702,13 +834,61 @@ export function report(built, io, opts) {
   }
 
   out.push('', parityBlock(built));
+  out.push(droppedCitationsBlock(built));
   out.push(unresolvedBlock(built));
+  out.push(...permittedNullBlock(built));
   if (built.failures.length) out.push('', `ASSERTIONS FAILED (${built.failures.length}):`, '', ...built.failures);
   out.push(RULE);
   return out.join('\n');
 }
 
+/**
+ * What the SOURCE loses: a citation whose cited wrapper holds no content of this edition.
+ *
+ * Printed unconditionally, including the zero. A block that appeared only when something was lost
+ * would make "this build has no such losses" and "this build does not look for them" render
+ * identically — and the whole reason this is here is that the losses were previously recorded in a
+ * diagnostics object nothing consumed, i.e. invisible to everyone running a build.
+ */
+function droppedCitationsBlock(built) {
+  const list = built.droppedCitations ?? [];
+  const byKind = new Map();
+  for (const d of list) byKind.set(d.kind, (byKind.get(d.kind) ?? 0) + 1);
+  const lines = ['', `DROPPED CITATIONS — ${list.length}`
+    + (list.length ? ` — ${[...byKind.keys()].sort(byCodepoint).map(k => `${k} ${byKind.get(k)}`).join(' · ')}` : '')];
+  if (!list.length) {
+    lines.push('  none — no clause cites a wrapper that is empty in this edition');
+    return lines.join('\n');
+  }
+  lines.push('  A clause cites a table or figure whose wrapper file holds nothing in this edition:',
+    '  every <table>/<image> in it belongs to the OTHER edition, so the citing clause ships without',
+    '  it. This is the source\'s own condition, not a normalizer defect — but it is content the',
+    '  published clause has and the corpus file does not, and the reader cannot tell.',
+    '  Counted over each document as READ (whole), not over the slice that was emitted.');
+  for (const d of list.slice(0, 20)) {
+    lines.push(`  ${pad(d.doc, 20)}${pad(d.kind, 7)}${d.host}`, `${' '.repeat(29)}-> ${d.wrapper}`);
+  }
+  if (list.length > 20) lines.push(`  … and ${list.length - 20} more`);
+  return lines.join('\n');
+}
+
+/** R50: clause nulls that were ruled on rather than left to fail. */
+function permittedNullBlock(built) {
+  const list = built.permittedNullClauses ?? [];
+  if (!list.length) return [];
+  const lines = ['', `PERMITTED null web_url — ${list.length} clause unit${list.length === 1 ? '' : 's'} `
+    + '(NULL_WEB_URL_CLAUSES; every other clause null FAILS the build)'];
+  for (const { doc, unit, exception } of list) {
+    lines.push(`  ${pad(doc, 20)}${unit.id}${unit.state ? ` [${unit.state}]` : ''}`, ...wrap(exception.evidence, '    '));
+  }
+  return [lines.join('\n')];
+}
+
 function parityBlock(built) {
+  const unavailable = PARITY_UNAVAILABLE.get(built.editionKey);
+  if (unavailable) {
+    return [`PARITY — not checked for edition ${built.editionKey}`, ...wrap(unavailable)].join('\n');
+  }
   const expectedAll = PARITY.get(built.editionKey) ?? new Map();
   const lines = ['PARITY — content units by immediate parent (docs/content-model-2025.md)'];
   let deltas = 0;
@@ -742,14 +922,29 @@ function parityBlock(built) {
   return lines.join('\n');
 }
 
+/**
+ * A unit's SHAPE, for the unresolved list. `kind` alone does not separate the classes a ruling has
+ * to be made on: 2022's Section overviews (`topicset/@summary`, a unit shape 2025 has no
+ * equivalent of, so weblinks.mjs has no keying rule for one) and its front matter are both `page`,
+ * and a list that called them the same thing would hide a whole new class inside a known one.
+ */
+function shapeOf(unit) {
+  if (unit.kind !== 'page') return unit.kind;
+  if (!unit.overview) return 'page';
+  return unit.containerKind === 'ncc-section' ? 'section overview' : 'container overview';
+}
+
 function unresolvedBlock(built) {
   const list = built.unresolvedOther;
+  const byShape = new Map();
+  for (const { unit } of list) { const s = shapeOf(unit); byShape.set(s, (byShape.get(s) ?? 0) + 1); }
   const lines = ['', `UNRESOLVED web_url — ${list.length} non-clause unit${list.length === 1 ? '' : 's'} `
-    + '(the build fails outright on a clause, so this list is pages and glossary entries only)'];
-  for (const { doc, unit } of list.slice(0, 15)) {
-    lines.push(`  ${pad(doc, 22)}${pad(unit.kind, 10)}${unit.title || unit.term || unit.id}${unit.state ? ` [${unit.state}]` : ''}`);
+    + '(the build fails outright on a clause, so this list is pages and glossary entries only)'
+    + (list.length ? `\n  by shape: ${[...byShape.keys()].sort(byCodepoint).map(s => `${s} ${byShape.get(s)}`).join(' · ')}` : '')];
+  for (const { doc, unit } of list.slice(0, 20)) {
+    lines.push(`  ${pad(doc, 20)}${pad(shapeOf(unit), 19)}${unit.title || unit.term || unit.id}${unit.state ? ` [${unit.state}]` : ''}`);
   }
-  if (list.length > 15) lines.push(`  … and ${list.length - 15} more`);
+  if (list.length > 20) lines.push(`  … and ${list.length - 20} more`);
   return lines.join('\n');
 }
 

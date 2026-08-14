@@ -16,7 +16,8 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import {
-  EDITIONS, PARITY, inScope, parityCheck, parseArgs, planReconcile, report, resolveUniqueness,
+  EDITIONS, KNOWN_EDITIONS, NULL_WEB_URL_CLAUSES, PARITY, PARITY_UNAVAILABLE, inScope,
+  nullWebUrlException, parityCheck, parseArgs, planReconcile, report, resolveUniqueness,
   warningCategory,
 } from '../src/build.mjs';
 
@@ -29,7 +30,7 @@ test('the bare form selects every edition that has a reader, and no filters', ()
   // Compared against EDITIONS *and* pinned to the literal set, so this cannot pass merely by
   // agreeing with an empty or stubbed registry.
   assert.deepEqual(o.editions, [...EDITIONS.keys()].sort());
-  assert.deepEqual(o.editions, ['2025'], 'until read-2022.mjs lands, a bare build is 2025 only');
+  assert.deepEqual(o.editions, ['2022', '2025'], 'both readers have landed, so a bare build is both editions');
   assert.equal(o.volumes, null);
   assert.equal(o.sections, null);
 });
@@ -40,8 +41,14 @@ test('--edition, --volumes and --sections take comma lists, in either --k v or -
   assert.deepEqual(parseArgs(['--edition=2025', '--sections=A']), { editions: ['2025'], volumes: null, sections: ['A'] });
 });
 
-test('an edition with no reader yet is refused by name, pointing at the task that adds it', () => {
-  assert.throws(() => parseArgs(['--edition', '2022']), /2022.*read-2022/s);
+test('every known edition has a reader — and one without would be refused by name', () => {
+  // The `--edition 2022` refusal this test used to assert is now UNREACHABLE, because 2022 has a
+  // reader. The branch stays for the next edition to be catalogued before its reader exists (the
+  // state read-2022.mjs was in for eight tasks), so what is checked here is the invariant that
+  // makes it unreachable, not the dead message.
+  assert.deepEqual(KNOWN_EDITIONS.filter(e => !EDITIONS.has(e)), [],
+    'a KNOWN_EDITION with no EDITIONS entry is refused by parseArgs — remove it from this list only by adding its reader');
+  assert.deepEqual(parseArgs(['--edition', '2022']).editions, ['2022']);
 });
 
 test('an unknown edition, flag, or bare argument is refused rather than silently ignored', () => {
@@ -383,12 +390,63 @@ test('a slice is not parity-checked — the target counts whole documents', () =
   assert.equal(parityCheck('2025', sliced), null);
 });
 
+test('an edition whose parity target is not transcribable is exempted BY NAME, with a reason', () => {
+  // 2022 has no equivalent of the 2025 table (see PARITY_UNAVAILABLE for the measurement). The
+  // exemption is enumerated so that a future edition with a missing table still fails loudly:
+  // without it, `PARITY.get(ed) ?? new Map()` turns every unit into a positive delta, which is the
+  // correct behaviour for "nobody transcribed the table yet".
+  const full = new Map([['volume-one', { units: new Map([['#document', 1250]]), tableRefs: new Map(), full: true }]]);
+  assert.equal(parityCheck('2022', full), null, '2022 is exempt — its census is checked in read-2022.test.mjs');
+  const err = parityCheck('2028', full);
+  assert.ok(err, 'an edition that is neither transcribed nor exempted must still fail on its units');
+  assert.match(err, /delta \+1250/);
+  for (const [ed, why] of PARITY_UNAVAILABLE) {
+    assert.ok(EDITIONS.has(ed), `${ed}: exempted from parity but has no reader`);
+    assert.ok(!PARITY.has(ed), `${ed}: both transcribed and exempted — one of the two is wrong`);
+    assert.ok(String(why).length > 200, `${ed}: an exemption needs the measurement that justifies it, not a label`);
+  }
+});
+
 test('a parent the content model does not list at all is a delta, not a silent extra', () => {
   const extra = reconciling();
   extra.get('volume-one').units.set('made-up-parent', 3);
   const err = parityCheck('2025', extra);
   assert.match(err, /made-up-parent/);
   assert.match(err, /delta \+3/);
+});
+
+/* ============================================================ *
+ * 6. R50 — the enumerated null-web_url exceptions               *
+ * ============================================================ */
+
+test('every null-web_url exception names an edition, a volume, a clause, a state and its evidence', () => {
+  assert.ok(NULL_WEB_URL_CLAUSES.length > 0, 'the list is empty — delete it rather than leaving a stub');
+  for (const e of NULL_WEB_URL_CLAUSES) {
+    for (const k of ['edition', 'volume', 'clause', 'evidence']) {
+      assert.ok(typeof e[k] === 'string' && e[k].trim(), `${JSON.stringify(e)}: no ${k}`);
+    }
+    // `state` may be null (a national clause the site does not publish), but it must be STATED:
+    // an omitted key would silently exempt every jurisdiction's copy of that clause.
+    assert.ok('state' in e, `${JSON.stringify(e)}: no state key — write null if the clause is national`);
+    assert.ok(EDITIONS.has(e.edition), `${e.clause}: exception for edition ${e.edition}, which has no reader`);
+    assert.ok(e.evidence.length > 60, `${e.clause}: the evidence line must say what was checked and what it showed`);
+  }
+});
+
+test('an exception applies to exactly one edition+volume+clause+state — anything else still fails', () => {
+  const entry = NULL_WEB_URL_CLAUSES[0];
+  const unit = { volume: entry.volume, id: entry.clause, state: entry.state, kind: 'clause' };
+  assert.equal(nullWebUrlException(entry.edition, unit), entry, 'the enumerated case must be recognised');
+  // Each of the four keys, varied alone. A matcher loose on any one of them exempts a clause
+  // nobody ruled on — which is the whole failure mode R50's list exists to avoid.
+  assert.equal(nullWebUrlException('2025', unit), null);
+  assert.equal(nullWebUrlException(entry.edition, { ...unit, volume: 'volume-one' }), null);
+  assert.equal(nullWebUrlException(entry.edition, { ...unit, id: 'A1G1' }), null);
+  assert.equal(nullWebUrlException(entry.edition, { ...unit, state: 'VIC' }), null);
+  assert.equal(nullWebUrlException(entry.edition, { ...unit, state: null }), null);
+  // Case is the reader's convention, not a distinction: the corpus writes `TAS`, and an entry
+  // that matched only one spelling would fail the build the day a reader lowercased it.
+  if (entry.state) assert.equal(nullWebUrlException(entry.edition, { ...unit, state: entry.state.toLowerCase() }), entry);
 });
 
 test('a warning with no colon keeps its whole name — indexOf(-1) must not eat the last character', () => {
@@ -423,7 +481,69 @@ test('the report does not deref a null io — an edition that passed inside a fa
   assert.match(text, /clause 10\/10/);
 });
 
-test('every edition with a reader has its documents, its parity table and its committed link file', () => {
+test('a citation the source itself drops is REPORTED, not merely recorded in a diagnostics object', () => {
+  // Task 10 records every citation lost because the cited wrapper holds no NCC 2022 content (its
+  // <table>/<image> children are all NCC 2025 draft). Nothing consumed that record, so the loss —
+  // B1P1 shipping without all three minimum-annual-reliability-index tables — was invisible to
+  // anyone running a build. The report is where it becomes visible.
+  const built = {
+    editionKey: '2022',
+    failures: [],
+    editionDirs: new Set(['volume-one']),
+    ownedDirs: new Set(['volume-one']),
+    unresolvedOther: [],
+    droppedCitations: [
+      { doc: 'volume-one', host: 'B1P1-structural-reliability.xml', wrapper: 'table-B1P1a-minimum-annual-reliability-indices.xml', kind: 'table' },
+      { doc: 'volume-one', host: 'F8D5-ventilation.xml', wrapper: 'image-F8D5c Example of a multi-pitched roof space.xml', kind: 'image' },
+    ],
+    permittedNullClauses: [],
+    stats: {
+      perDoc: [{ key: 'volume-one', read: 10, scoped: 10, figures: 0, warnings: 0 }],
+      kinds: new Map([['clause', 10]]),
+      warnings: new Map(),
+      figures: new Set(),
+      webUrl: new Map([['clause', { resolved: 10, total: 10 }]]),
+      parity: new Map([['volume-one', { units: new Map(), tableRefs: new Map(), full: false }]]),
+      duplicates: 0, merges: [], paths: 10,
+    },
+  };
+  const text = report(built, { written: 10, removedFiles: 0, removedDirs: 0, kept: 0 }, { volumes: null, sections: null });
+  assert.match(text, /DROPPED CITATIONS — 2/);
+  assert.match(text, /image 1 · table 1/);   // codepoint order, never localeCompare
+  assert.match(text, /B1P1-structural-reliability\.xml/);
+  assert.match(text, /table-B1P1a-minimum-annual-reliability-indices\.xml/);
+  // The 2025 reader records none, and a block that vanished when the count was zero would read as
+  // "this build has no such losses" and as "this build does not look" in exactly the same way.
+  const none = report({ ...built, droppedCitations: [] }, null, { volumes: null, sections: null });
+  assert.match(none, /DROPPED CITATIONS — 0/);
+});
+
+test('a permitted null web_url is printed — an exception nobody can see is a hole, not a ruling', () => {
+  const entry = NULL_WEB_URL_CLAUSES[0];
+  const built = {
+    editionKey: entry.edition,
+    failures: [],
+    editionDirs: new Set([entry.volume]),
+    ownedDirs: new Set([entry.volume]),
+    unresolvedOther: [],
+    droppedCitations: [],
+    permittedNullClauses: [{ doc: entry.volume, unit: { id: entry.clause, state: entry.state, sectionNum: 'E' }, exception: entry }],
+    stats: {
+      perDoc: [{ key: entry.volume, read: 1, scoped: 1, figures: 0, warnings: 0 }],
+      kinds: new Map([['clause', 1]]),
+      warnings: new Map(),
+      figures: new Set(),
+      webUrl: new Map([['clause', { resolved: 0, total: 1 }]]),
+      parity: new Map([[entry.volume, { units: new Map(), tableRefs: new Map(), full: false }]]),
+      duplicates: 0, merges: [], paths: 1,
+    },
+  };
+  const text = report(built, null, { volumes: null, sections: null });
+  assert.match(text, /PERMITTED null web_url/);
+  assert.match(text, new RegExp(entry.clause));
+});
+
+test('every edition with a reader has its documents, its parity target and its committed link file', () => {
   assert.ok(EDITIONS.size > 0, 'no editions registered at all');
   for (const [key, ed] of EDITIONS) {
     assert.equal(ed.year, key);
@@ -436,7 +556,11 @@ test('every edition with a reader has its documents, its parity table and its co
       for (const f of ['key', 'cdnKey', 'citationPrefix', 'volumeLabel']) {
         assert.ok(d[f], `${key} ${d.key ?? '?'}: no ${f}`);
       }
-      assert.ok(PARITY.get(key)?.get(d.key)?.size > 0, `${key}/${d.key}: no parity rows`);
+      // Either a transcribed parity table for every document, or a named exemption carrying the
+      // measurement that justifies it. Silence is the one thing that is not allowed: it would let
+      // a bulk run's data loss pass as a clean build.
+      assert.ok(PARITY.get(key)?.get(d.key)?.size > 0 || PARITY_UNAVAILABLE.has(key),
+        `${key}/${d.key}: no parity rows and no PARITY_UNAVAILABLE entry`);
     }
     assert.ok(fs.existsSync(`tools/data/weblinks-${key}.json`), `${key}: no committed link file`);
   }
