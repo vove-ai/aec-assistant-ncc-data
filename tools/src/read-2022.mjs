@@ -131,6 +131,226 @@ export function baseViewKeeps(el) {
 }
 
 /**
+ * Is this element rejected specifically as a CONTAINER THE 2025 DRAFT ADDED?
+ *
+ * R73's retention applies to that case and to no other, because the restructuring story is true
+ * only of it: the draft created a container and moved existing text into it. The other rejection —
+ * `delete` dated <=2022 — is text removed from the document BEFORE NCC 2022 shipped, and its
+ * content being untracked is not evidence of anything, since a pre-2022 deletion is recorded at
+ * element level by design. Retaining on that would republish words the Code had already dropped.
+ */
+function rejectedAsDraftInsert(el) {
+  const marks = marksOf(el);
+  return marks.length > 0 && marks.every(m => m.type === 'insert' && m.year >= DRAFT_CYCLE_FROM);
+}
+
+/**
+ * Text in this subtree that belongs to the NCC 2022 base cycle, or '' — computed by the TEXT-level
+ * mechanisms alone (1 and 2), deliberately ignoring every element-level mark inside it.
+ *
+ * It answers one question: "if this element were not dropped, would anything of the 2022 Code
+ * remain under it?" Element-level marks are exactly what is in question at the call site, so they
+ * must not filter here — the recursion in `applyBaseView` re-asks the same question of every
+ * descendant, and a descendant that answers no is dropped there.
+ *
+ * Base-cycle text is text outside every `insText` range and outside every container-form
+ * `insText`, INCLUDING text inside a `delText` range dated >=2024 — which §1.1's table says is
+ * NCC 2022 text to KEEP.
+ *
+ * INLINE-ONLY text does not count, and the exclusion is measured rather than defensive. A
+ * milestone range brackets TEXT; an inline element sitting between the end of one range and the
+ * start of the next is not covered by either, so its text survives this computation while being
+ * 2025-draft content — `A5G6`'s `<xref>non-combustible</xref>` and `volume-two H6D2`'s
+ * `<xref type="insert">required</xref>` are the two instances in all four packages, and both are a
+ * single glossary word inside a sentence that is otherwise wholly inserted. A bare text node under
+ * a block element is the opposite case: the editor did not author it in this cycle.
+ */
+export function baseCycleText(el) {
+  let out = '';
+  let inserted = 0;
+  const visit = (node, inInline) => {
+    for (let c = node.firstChild; c; c = c.nextSibling) {
+      if (c.nodeType === 3) { if (inserted === 0 && !inInline) out += c.data; continue; }
+      if (c.nodeType !== 1) continue;
+      const ln = localName(c.nodeName);
+      if (ln === 'insText' || ln === 'delText') {
+        const action = c.getAttribute('xt:action') || c.getAttribute('action') || '';
+        if (action === 'start') { if (ln === 'insText') inserted++; continue; }
+        if (action === 'end') { if (ln === 'insText') inserted = Math.max(0, inserted - 1); continue; }
+        if (ln === 'delText') visit(c, inInline);   // container form: the NCC 2022 words
+        continue;                                   // container-form insText: the 2025 draft's
+      }
+      visit(c, inInline || INLINE_TEXT_TAGS.has(ln));
+    }
+  };
+  visit(el, INLINE_TEXT_TAGS.has(localName(el.nodeName)));
+  return collapse(out);
+}
+
+/**
+ * Markup whose text `baseCycleText` does not read, because the tracking mechanism cannot reach
+ * inside it — so its survival proves nothing about which edition it belongs to.
+ *
+ *  * INLINE elements. A milestone range brackets sibling TEXT; an inline element between the end
+ *    of one range and the start of the next is covered by neither.
+ *  * MATHML and the MathType payload beside it. Measured across all four packages: 1,918 `<math>`
+ *    elements, `0` carrying a milestone and `0` carrying an element-level mark anywhere inside.
+ *    An equation is opaque to tracked changes, so its content can never be base-cycle evidence —
+ *    and `<image>` here is the GIF fallback's base64, not prose.
+ */
+const INLINE_TEXT_TAGS = new Set(['xref', 'a', 'b', 'i', 'u', 'em', 'strong', 'span', 'ph', 'link',
+  'sub', 'sup', 'glossref', 'equation-inline', 'placeholder', 'clauseref-inline',
+  'math', 'mathML', 'image']);
+
+/**
+ * R73 — the enumerated exceptions to "base-cycle text is retained".
+ *
+ * A milestone range brackets a RUN of text, and the runs are not contiguous: XPress splits one
+ * whenever an inline element or a second-round edit interrupts it, and it does not always close
+ * over the punctuation between two runs. So a handful of characters can sit outside every range
+ * inside prose that is wholly a 2025-draft insertion. Retaining on that evidence publishes 2025
+ * text as NCC 2022 — the one failure this module exists to prevent — so those sites are named
+ * here, with the published NCC 2022 that proves what the retained text is not.
+ *
+ * `text` is the EXACT base-cycle text `baseCycleText` computes (whitespace collapsed, inline and
+ * MathML content excluded), which is why the shorter entries read as fragments: an entry is a
+ * measurement of the source, not a quotation of the Code. `file` is the source file's basename —
+ * these packages ship the same file in up to four zips, byte-identically, so the fact is a
+ * property of the FILE and applies wherever it appears. An entry that matches nothing during a
+ * full read FAILS THE BUILD: a ruling that stops firing has silently gone stale, and this one
+ * stands between the draft and the corpus.
+ *
+ * Anything NOT on this list is retained. That is the safe direction: the cost of a wrong
+ * retention is a visible fragment in one file; the cost of a wrong drop is published Code that is
+ * simply not there, which is invisible to every guard in this repository.
+ */
+export const NOT_BASE_CYCLE_TEXT = [
+  {
+    file: '10-8-1-external-wall-construction.xml', tag: 'subclause', text: ';',
+    evidence:
+      'The whole subclause is a 2024-02-26 insertion — "Subject to (5), for the purposes of (2) and (3), '
+      + 'a drained and ventilated cavity…" — and every word of it sits inside an xt:insText range. The one '
+      + 'character outside them is a semicolon between two ranges. NCC 2022 HP 10.8.1 has no such '
+      + 'subclause (the published clause ends at (3)), and a corpus paragraph reading ";" states nothing.',
+  },
+  {
+    file: 'B1P1-structural-reliability.xml', tag: 'callout', text: 's',
+    evidence:
+      'The callout is a 2024-03-11 insertion whose three list items are each one xt:insText range '
+      + '("Annual probability of failure (P_F) can be derived from the reliability index (β)…"). The '
+      + 'surviving "s" is the plural left outside a range when a 2025-01 edit re-bracketed the run. '
+      + 'Published NCC 2022 V1 B1P1 carries one explanatory box, about the 1 October 2023 solar '
+      + 'photovoltaic load, which this corpus already emits; a blockquote reading "> s" is not the other.',
+  },
+  {
+    file: 'J6D5-fan-systems.xml', tag: 'subclause', text: ',',
+    evidence:
+      'A 2024-04-10 inserted subclause whose prose is one xt:insText range and whose only untracked '
+      + 'characters are a comma between two ranges. Retaining it emits the formula '
+      + 'n_(minroof)=0.062xIn(P)+0.35; ncc.abcb.gov.au publishes NCC 2022 V1 J6D5(2) with exactly two '
+      + 'formulas, "ηmin = 0.13×ln(p)−0.3" at (a) and "ηmin = 0.85×(a×ln(P)−b+N)/100" at (c), and no '
+      + 'roof-fan grade. (Fetched 2026-08-15 from the clause file\'s own web_url.)',
+  },
+  {
+    file: 'B1V1-structural-reliability.xml', tag: 'ol', text: ': :',
+    evidence:
+      'Two colons, the punctuation between three inserted equation ranges. Retaining the list emits a '
+      + 'second copy of the reliability-index equation β=ln[(R/S)√(C_S/C_R)]/√(ln(C_R.C_S)) — which this '
+      + 'corpus already publishes at B1V1(3)(b), from untracked source — under a duplicate "(a)" label, '
+      + 'plus two summation equations for S̄ and σ²_S that NCC 2022 V1 B1V1 does not contain.',
+  },
+  {
+    file: 'B1V1-Determination-of-velocity.xml', tag: 'callout', text: '.',
+    evidence:
+      'A single full stop between two inserted ranges, in the Volume Three clause that '
+      + 'OMITTED_2022_CLAUSES already omits as clause-is-2025-only (every body range is a 2024 '
+      + 'xt:insText insertion). Nothing from this file reaches the corpus, and a retention here would '
+      + 'contradict the omission ruling rather than add anything to it.',
+  },
+  {
+    file: '10-2-14-acceptable-shower-area.xml', tag: 'subclause',
+    text: 'to include a with falls complying with ; and',
+    evidence:
+      'The 2025 draft split HP 10.2.14 into subclauses; this inserted one is a copy of the requirement '
+      + 'the corpus ALREADY emits from the untracked list as 10.2.14(a) — "to include a floor waste with '
+      + 'falls complying with 10.2.12; and". Published NCC 2022 HP 10.2.14 states it once. Retaining it '
+      + 'prints the same requirement twice in one file, the second time with no label.',
+  },
+  {
+    file: '10-2-14-acceptable-shower-area.xml', tag: 'subclause',
+    text: 'with a—stepdown complying with ; or complying with ; orlevel threshold complying with .',
+    evidence:
+      'The same split, for 10.2.14(b) and its (i)/(ii)/(iii) — stepdown 10.2.15, hob 10.2.16, level '
+      + 'threshold 10.2.17 — which the corpus already emits from the untracked list. Published NCC 2022 '
+      + 'HP 10.2.14 states them once, as sub-paragraphs of (b).',
+  },
+  {
+    file: 'C1P6-contamination.xml', tag: 'subclause',
+    text: 'entry of foul gases from the system into buildings, such that—at pressures of up to ±375 Pa, '
+      + 'water trap seals will not be reduced to depths less than 70 mm for trap seals in pressurised '
+      + 'rooms and25 mm for all other applications; oran level of safety to human health is achieved as '
+      + 'a system complying to (i); and',
+    evidence:
+      'A 2025-draft restatement of V3 C1P6(1)(a), which the corpus already emits verbatim from the '
+      + 'untracked list, including its (i) and (ii). The inserted copy also re-splits "70 mm … and 25 mm '
+      + '…" into two sub-items, so retaining it prints the requirement twice with two different '
+      + 'sub-numberings in one file.',
+  },
+  {
+    file: 'C1P6-contamination.xml', tag: 'subclause',
+    text: 'entry of and stormwater into the system.',
+    evidence:
+      'The draft\'s replacement for V3 C1P6(1)(b). The published NCC 2022 text — which this corpus '
+      + 'already emits at (b) — reads "entry of surface water, subsurface water and stormwater into the '
+      + 'system"; the inserted copy drops "subsurface water". Retaining it would print a narrower '
+      + 'requirement beside the wider published one, in the same clause.',
+  },
+  {
+    file: 'F1F1-protection-from-redirected-surface-water.xml', tag: 'li',
+    text: 'from damage caused by redirected surface .',
+    evidence:
+      'ncc.abcb.gov.au publishes NCC 2022 V1 F1F1 in full as one sentence: "A building, including any '
+      + 'associated sitework, is to be constructed in a way that protects people and other property from '
+      + 'the adverse effects of redirected surface water." There is no second limb, and the Part\'s other '
+      + 'Functional Statement, F1F2, is about resistance to rain, surface water and ground water. '
+      + '(Fetched 2026-08-15 from the file\'s own web_url.)',
+  },
+];
+
+const rulingKey = e => `${e.file}|${e.tag}|${e.text}`;
+
+/**
+ * How `applyBaseView` tells `splice` that a surviving pointer carries a 2025 insert mark.
+ *
+ * An attribute rather than a side list because the pointer is resolved in another pass, from a
+ * DOM that is parsed on demand and cloned — anything held beside the tree would not survive the
+ * round trip. It never reaches the corpus: `splice` either replaces the pointer with the wrapper
+ * or removes it, and no attribute is emitted into markdown in either case.
+ */
+const DRAFT_POINTER_ATTR = 'xt-base-view-draft-pointer';
+
+// Refused at import, on the same terms as OMITTED_2022_CLAUSES: an exception whose evidence is a
+// shrug is indistinguishable from a bug, and a build is the wrong place to find that out.
+for (const e of NOT_BASE_CYCLE_TEXT) {
+  for (const k of ['file', 'tag', 'text', 'evidence']) {
+    if (typeof e[k] === 'string' && e[k].trim()) continue;
+    throw new Error(`read-2022: NOT_BASE_CYCLE_TEXT entry ${JSON.stringify(e)} has no ${k} — an exception `
+      + 'must name the source file, the element and the exact surviving text, and state its evidence');
+  }
+  if (e.evidence.length < 80) {
+    throw new Error(`read-2022: NOT_BASE_CYCLE_TEXT entry for ${e.file} states ${e.evidence.length} characters `
+      + 'of evidence — dropping text the base view kept needs a measurement a reader can check, not a label');
+  }
+}
+
+/** The R73 entry covering this surviving text, or null. */
+function notBaseCycle(file, tag, text) {
+  if (!file) return null;
+  const base = file.slice(file.lastIndexOf('/') + 1);
+  return NOT_BASE_CYCLE_TEXT.find(e => e.file === base && e.tag === tag && e.text === text) ?? null;
+}
+
+/**
  * Rewrite a parsed document IN PLACE into its NCC 2022 base view.
  *
  * Doing it as a DOM transform, once per file, rather than as a filter at each read site, is what
@@ -140,10 +360,24 @@ export function baseViewKeeps(el) {
  *
  * Three mechanisms, in the order they must be applied:
  *
- *  1. ELEMENT-LEVEL MARKS (§1.1 mechanism 3). Drop what `baseViewKeeps` rejects. Sibling-pair
- *     selection (§6.1) falls out of this for free: where a `table-reference` holds an inserted and
- *     a deleted `<table>`, removing the inserted one leaves the 2022 table — and DOCUMENT ORDER IS
- *     NOT THE SELECTOR, the insert being first in 5 of the 9 multi-table wrappers.
+ *  1. ELEMENT-LEVEL MARKS (§1.1 mechanism 3). Drop what `baseViewKeeps` rejects — but the mark is
+ *     on the ELEMENT, and it says nothing about the text underneath it. The 2025 editing
+ *     restructured clauses by wrapping, promoting and re-homing NCC 2022 text inside NEW
+ *     containers, and XPress marks the new container inserted while leaving the carried-over text
+ *     untracked (or bracketed by a `delText`, which §1.1 says is 2022 text to KEEP). Deleting such
+ *     a container with its subtree discards published Code that carries no mark of its own.
+ *     Verified against ncc.abcb.gov.au: `J6D5`'s subclauses 8/9/10 in the draft are NCC 2022
+ *     J6D5(3)(b), (c) and (d) verbatim; `J5D2`'s inserted `<ol>` holds the 2022 stem "elements
+ *     forming the envelope of a Class 2 to 9 building, other than—" inside a `delText`.
+ *     So: an element the mark rejects is dropped ONLY IF `baseCycleText` finds nothing under it.
+ *     Where it finds something the element is RETAINED and the recursion re-asks the same question
+ *     of each child, so the 2025-only parts inside it are still dropped, one level down. A label
+ *     left over a subtree that renders nothing is then removed by normalize.mjs (R61/R72), not
+ *     here — this transform decides membership, never presentation.
+ *     Sibling-pair selection (§6.1) is unaffected: where a `table-reference` holds an inserted and
+ *     a deleted `<table>`, the inserted one is wholly inside `insText` ranges, so nothing is
+ *     retained and removing it leaves the 2022 table — and DOCUMENT ORDER IS NOT THE SELECTOR,
+ *     the insert being first in 5 of the 9 multi-table wrappers.
  *  2. MILESTONE PAIRS (§1.1 mechanism 1). `xt:insText`/`xt:delText` as EMPTY, self-closing
  *     elements bracketing a run of sibling text. The ranges CROSS ELEMENT BOUNDARIES, so they are
  *     tracked with a depth counter over a document-order traversal, never by recursing into the
@@ -154,7 +388,7 @@ export function baseViewKeeps(el) {
  *
  * One start/end id per package is unbalanced, so the counters clamp at zero rather than assert.
  */
-export function applyBaseView(doc) {
+export function applyBaseView(doc, { sourceFile = '', retained = null, ruledFired = null } = {}) {
   const root = doc.documentElement;
   if (!root) return doc;
 
@@ -162,7 +396,31 @@ export function applyBaseView(doc) {
   const visit = el => {
     for (let c = el.firstChild; c; c = c.nextSibling) {
       if (c.nodeType !== 1) continue;
-      if (baseViewKeeps(c)) visit(c); else drop.push(c);
+      if (baseViewKeeps(c)) { visit(c); continue; }
+      if (!rejectedAsDraftInsert(c)) { drop.push(c); continue; }
+      // A POINTER's own emptiness is not its TARGET's. `<table-reference conref>` and
+      // `<image-reference conref>` carry no content — the table or figure lives in another file —
+      // so `baseCycleText` is empty for every one of them and mechanism 1 would delete the pointer
+      // on evidence about the wrong document. Measured in volume-one: 27 pointers carry a 2025
+      // insert mark and 4 of them name a wrapper that still holds NCC 2022 content, two of those
+      // being V3 C2V3's Tables C2V3a and C2V3b — the frequency factor and the discharge units its
+      // own base-view formula needs, cited by name in untracked 2022 prose. So the pointer is
+      // MARKED instead of dropped, and `splice` decides on the target: it is restored where the
+      // wrapper has 2022 content and dropped where it does not.
+      if ((c.nodeName === 'table-reference' || c.nodeName === 'image-reference') && c.getAttribute('conref')) {
+        c.setAttribute(DRAFT_POINTER_ATTR, '1');
+        continue;
+      }
+      const kept = baseCycleText(c);
+      if (!kept) { drop.push(c); continue; }
+      const ruled = notBaseCycle(sourceFile, c.nodeName, kept);
+      if (ruled) { ruledFired?.add(rulingKey(ruled)); drop.push(c); continue; }
+      // Retained, and RECORDED: a retention is the reader deciding that a container the 2025 draft
+      // marked inserted is carrying NCC 2022 text. That judgement must be countable — the build
+      // prints the total and the source-file breakdown — so a source change that starts or stops
+      // producing them is visible rather than absorbed.
+      retained?.push({ file: sourceFile, tag: c.nodeName, text: kept });
+      visit(c);
     }
   };
   visit(root);
@@ -698,10 +956,19 @@ export function readPackage2022(pkgDir, doc, { sections = null, diagnostics = nu
     // carrying the ruling's evidence; `identityRedirects` counts the clauserefs whose stated
     // identity resolved to a DIFFERENT file in this package and was followed there.
     omittedClauses: [], identityRedirects: 0, renumbered: [],
+    // R73. One record per element the base view retained because its subtree carried NCC 2022
+    // text under a mark that would otherwise have deleted the lot; plus the pointer arm, where the
+    // decision is made against the TARGET rather than the pointer's own (always empty) subtree.
+    baseViewRetentions: [], draftPointersRestored: [], draftPointersDropped: 0,
     // R60. One record per clause read from a sibling package, so the report and the edition index
     // can name a provision whose text did not come out of this publication's own zip.
     recoveredClauses: [],
   };
+
+  // R73. Declared here rather than beside the other fired-sets because pass 1 fires it, and a
+  // ruling nobody can see stop firing is how 2025-draft text would creep back in unnoticed.
+  const ruledFired = new Set();
+  const xmlBasenames = new Set(files.map(f => f.slice(f.lastIndexOf('/') + 1)));
 
   /* -- pass 1: one parse per file, facts kept, DOM discarded ---------------- */
 
@@ -721,7 +988,11 @@ export function readPackage2022(pkgDir, doc, { sections = null, diagnostics = nu
 
     const idEl = childEl(root, 'sptc') ?? childEl(root, 'num');
     const accepted = idEl ? acceptedText(idEl) : '';
-    applyBaseView(dom);
+    // R73. Recorded in pass 1 because pass 1 is the only pass that visits EVERY file, which makes
+    // this a census of the package rather than of what the map happened to reach — the same
+    // distinction the variation census draws, and for the same reason: the number is evidence
+    // about the source, and the build prints it.
+    applyBaseView(dom, { sourceFile: file, retained: dg.baseViewRetentions, ruledFired });
     const baseIdEl = childEl(root, 'sptc') ?? childEl(root, 'num');
     const f = {
       file,
@@ -809,7 +1080,7 @@ export function readPackage2022(pkgDir, doc, { sections = null, diagnostics = nu
   const load = file => {
     if (!loaded.has(file)) {
       const dom = new DOMParser(XML_PARSER).parseFromString(fs.readFileSync(path.join(xmlDir, file), 'utf8'), 'text/xml');
-      applyBaseView(dom);
+      applyBaseView(dom, { sourceFile: file, ruledFired });
       loaded.set(file, dom);
     }
     return loaded.get(file);
@@ -925,6 +1196,17 @@ export function readPackage2022(pkgDir, doc, { sections = null, diagnostics = nu
       }
       const wrapper = load(target).documentElement;
       const payload = el.nodeName === 'image-reference' ? 'image' : 'table';
+      // The pointer the 2025 draft inserted, kept by `applyBaseView` so that the decision could be
+      // made HERE, against the target. No 2022 content in the wrapper means the draft added both
+      // the pointer and the thing it points at: that is a 2025 citation of a 2025 table, not a
+      // citation this edition loses, so it is removed WITHOUT a droppedCitations record — which
+      // exists to name what the published 2022 clause has and the corpus file does not.
+      if (!childEl(wrapper, payload) && el.getAttribute(DRAFT_POINTER_ATTR)) {
+        dg.draftPointersDropped++;
+        node.removeChild(el);
+        continue;
+      }
+      if (el.getAttribute(DRAFT_POINTER_ATTR)) dg.draftPointersRestored.push({ host: host ?? homeFile ?? '', wrapper: target, kind: payload });
       if (!childEl(wrapper, payload)) {
         // §6.2: the wrapper has no NCC 2022 content, so the citation is dropped — AND the citing
         // clause is reported. 14 live citations per package land here (10 tables, 4 figures):
@@ -1165,7 +1447,7 @@ export function readPackage2022(pkgDir, doc, { sections = null, diagnostics = nu
           + 'recovering a clause that cites any.', at);
       }
     }
-    applyBaseView(dom);
+    applyBaseView(dom, { sourceFile: recovery.conref, ruledFired });
     return root;
   }
 
@@ -1298,7 +1580,8 @@ export function readPackage2022(pkgDir, doc, { sections = null, diagnostics = nu
 
   const mapSrc = fs.readFileSync(path.join(xmlDir, 'FlattenedFile.xml'), 'utf8');
   const mapDom = new DOMParser(XML_PARSER).parseFromString(mapSrc, 'text/xml');
-  applyBaseView(mapDom);
+  // No `retained` here: pass 1 already walked this file, and the census counts each site once.
+  applyBaseView(mapDom, { sourceFile: 'FlattenedFile.xml', ruledFired });
   loaded.set('FlattenedFile.xml', mapDom);
 
   const ctx0 = {
@@ -1685,6 +1968,13 @@ export function readPackage2022(pkgDir, doc, { sections = null, diagnostics = nu
     ...unfired(OMITTED_2022_CLAUSES, 'OMITTED_2022_CLAUSES', omissionsFired),
     ...unfired(RECOVERED_2022_CLAUSES, 'RECOVERED_2022_CLAUSES', recoveriesFired),
     ...unfired(STALE_ROOT_ID_CLAUSEREFS, 'STALE_ROOT_ID_CLAUSEREFS', staleFired),
+    // R73's entries are keyed on a SOURCE FILE, not on a volume, because the packages ship the
+    // same file in up to four zips. So an entry is only owed a firing by the packages that
+    // actually contain that file — `xmlFiles` is what this package holds, and asking any other
+    // package for it would fail every build on a fact about a different zip.
+    ...NOT_BASE_CYCLE_TEXT
+      .filter(e => xmlBasenames.has(e.file) && !ruledFired.has(rulingKey(e)))
+      .map(e => ({ list: 'NOT_BASE_CYCLE_TEXT', volume: doc.key, clause: e.file, conref: `<${e.tag}> ${e.text}` })),
   ];
   function unfired(list, name, fired) {
     return list.filter(e => e.volume === doc.key && !fired.has(`${doc.key}|${e.conref}`))

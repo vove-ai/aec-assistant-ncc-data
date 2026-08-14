@@ -847,6 +847,7 @@ function buildEdition(editionKey, opts) {
   const unresolvedOther = [];
   const permittedNullClauses = [];
   const droppedCitations = [];
+  const baseViewRetentions = [];
   const omittedClauses = [];
   const recoveredClauses = [];
   const supersededNullClauses = [];
@@ -874,6 +875,7 @@ function buildEdition(editionKey, opts) {
     const all = ed.readUnits(doc, { diagnostics });
     for (const d of diagnostics.droppedCitations ?? []) droppedCitations.push({ doc: doc.key, ...d });
     for (const o of diagnostics.omittedClauses ?? []) omittedClauses.push({ doc: doc.key, ...o });
+    for (const r of diagnostics.baseViewRetentions ?? []) baseViewRetentions.push({ doc: doc.key, ...r });
     for (const u of diagnostics.unfiredRulings ?? []) unfiredRulings.push(u);
     for (const r of diagnostics.recoveredClauses ?? []) recoveredClauses.push({ doc: doc.key, ...r });
     for (const r of diagnostics.renumbered ?? []) renumbered.push({ doc: doc.key, ...r });
@@ -1092,6 +1094,7 @@ function buildEdition(editionKey, opts) {
     unresolvedOther,
     permittedNullClauses,
     droppedCitations,
+    baseViewRetentions,
     omittedClauses,
     recoveredClauses,
     supersededNullClauses,
@@ -1265,6 +1268,7 @@ export function report(built, io, opts) {
 
   out.push('', parityBlock(built));
   out.push(droppedCitationsBlock(built));
+  out.push(baseViewRetentionsBlock(built));
   out.push(recoveredClausesBlock(built));
   out.push(omittedClausesBlock(built));
   out.push(unresolvedBlock(built));
@@ -1342,6 +1346,43 @@ function droppedCitationsBlock(built) {
     lines.push(`  ${pad(d.doc, 20)}${pad(d.kind, 7)}${d.host}`, `${' '.repeat(29)}-> ${d.wrapper}`);
   }
   if (list.length > 20) lines.push(`  … and ${list.length - 20} more`);
+  return lines.join('\n');
+}
+
+/**
+ * R73 — every element the NCC 2022 base view kept in spite of a 2025 `insert` mark on it.
+ *
+ * These are the sites where the 2025 draft restructured a clause by wrapping, promoting or
+ * re-homing NCC 2022 text inside a NEW container: the mark is on the container, the text under it
+ * is the Code's, and deleting the subtree loses published Code that carries no mark of its own.
+ * Printed in full — never truncated, never summarised to a count — because a retention is a
+ * judgement about which edition a run of text belongs to, and the number moving is the only
+ * signal a reader gets that the source's editorial state has changed.
+ */
+function baseViewRetentionsBlock(built) {
+  // DISTINCT SITES, not occurrences: these packages ship the same source file in up to four zips
+  // and pass 1 reads every one of them, so an occurrence count is four times a fact about one file.
+  const sites = new Map();
+  for (const r of built.baseViewRetentions ?? []) sites.set(`${r.file}|${r.tag}|${r.text}`, r);
+  const list = [...sites.values()];
+  const byFile = new Map();
+  for (const r of list) byFile.set(r.file, (byFile.get(r.file) ?? 0) + 1);
+  const lines = ['', `BASE-VIEW RETENTIONS — ${list.length} distinct sites in ${byFile.size} source files`];
+  if (!list.length) {
+    lines.push('  none — no element carrying a 2025 insert mark holds NCC 2022 text beneath it');
+    return lines.join('\n');
+  }
+  lines.push('  An element the 2025 draft marked INSERTED whose subtree still carries base-cycle text',
+    '  (outside every insText range, or inside a delText range dated >=2024). The element is kept and',
+    '  its children are judged on their own marks, so the 2025-only parts inside it are still dropped.',
+    '  Where the draft moved that text into a container NCC 2022 did not have, the SUB-NUMBERING the',
+    '  corpus prints is the draft\'s: the source records that a container is new, never where its text',
+    '  sat before, and inventing a letter would be a guess published as law. The words are the Code\'s;',
+    '  a sub-paragraph letter in one of these clauses is not citable. See corpus/2022/INDEX.md.');
+  for (const f of [...byFile.keys()].sort(byCodepoint)) {
+    const one = list.find(r => r.file === f);
+    lines.push(`  ${padL(byFile.get(f), 3)}  ${f}`, `       ${one.text.length > 96 ? `${one.text.slice(0, 96)}…` : one.text}`);
+  }
   return lines.join('\n');
 }
 

@@ -16,6 +16,8 @@ import {
   BODY_TAGS_2022,
   applyBaseView,
   baseViewKeeps,
+  baseCycleText,
+  NOT_BASE_CYCLE_TEXT,
   readPackage2022,
   OMITTED_2022_CLAUSES,
   RECOVERED_2022_CLAUSES,
@@ -72,10 +74,14 @@ test('container form: delText is unwrapped, insText is removed (§1.1 mechanism 
 test('element-level marks: the three spellings, including the bare no-namespace one (§1.1 mechanism 3)', () => {
   // 355 bare `type=` attributes in volume-one alone, and they sit on WHOLE UNITS
   // (table-reference 159, clause 148, image-reference 48) — the worst place to miss one.
+  // The draft's own shape: an inserted element's text is ALSO bracketed by a milestone range, so
+  // there is nothing of the 2022 cycle under it. (Where there is, R73 retains it — see below.)
+  const ins = t => `<xt:insText xt:action="start" xt:dateTime="2024-01-01T00:00:00" xt:id="${t}"/>`
+    + `${t} draft<xt:insText xt:action="end" xt:id="${t}"/>`;
   const d = base(`<clause ${XT} xmlns:ns0="urn:xpressauthor:trackchanges">`
-    + `<p id="a" xt:type="insert" xt:dateTime="2024-01-01T00:00:00">xt draft</p>`
-    + `<p id="b" ns0:type="insert" ns0:dateTime="2024-01-01T00:00:00">ns0 draft</p>`
-    + `<p id="c" type="insert" dateTime="2024-01-01T00:00:00">bare draft</p>`
+    + `<p id="a" xt:type="insert" xt:dateTime="2024-01-01T00:00:00">${ins('xt')}</p>`
+    + `<p id="b" ns0:type="insert" ns0:dateTime="2024-01-01T00:00:00">${ins('ns0')}</p>`
+    + `<p id="c" type="insert" dateTime="2024-01-01T00:00:00">${ins('bare')}</p>`
     + `<p id="d">2022</p></clause>`);
   assert.deepEqual(childrenNamed(d.documentElement, 'p').map(p => p.getAttribute('id')), ['d']);
 });
@@ -94,10 +100,95 @@ test('direction is per mark, not "keep everything <= 2022" (§1.1)', () => {
   const d = base(`<clause ${XT}>`
     + `<p id="i2021" xt:type="insert" xt:dateTime="2021-06-01T00:00:00">accepted into 2022</p>`
     + `<p id="d2021" xt:type="delete" xt:dateTime="2021-06-01T00:00:00">removed before 2022</p>`
-    + `<p id="i2024" xt:type="insert" xt:dateTime="2024-06-01T00:00:00">2025 draft</p>`
+    + `<p id="i2024" xt:type="insert" xt:dateTime="2024-06-01T00:00:00">`
+    + '<xt:insText xt:action="start" xt:dateTime="2024-06-01T00:00:00" xt:id="r"/>2025 draft'
+    + '<xt:insText xt:action="end" xt:id="r"/></p>'
     + `<p id="d2024" xt:type="delete" xt:dateTime="2024-06-01T00:00:00">2022 text the draft deletes</p>`
     + `</clause>`);
   assert.deepEqual(childrenNamed(d.documentElement, 'p').map(p => p.getAttribute('id')), ['i2021', 'd2024']);
+});
+
+/* -- R73: an element-level mark is on the CONTAINER, not on the text under it -- */
+
+test('R73: an inserted container holding untracked 2022 text is RETAINED, not deleted with its subtree', () => {
+  // The mechanism the corpus lost 27 prose fragments to. The 2025 draft promoted NCC 2022 J6D5(3)(b)
+  // to a subclause of its own: the <subclause> and its <num> are 2024 insertions, the requirement
+  // inside is the Code's, untracked. ncc.abcb.gov.au publishes it as J6D5(3)(b) — "Flexible ductwork
+  // must not account for more than 6 m in length in any duct run." Deleting the subtree loses it.
+  const d = base(`<clause ${XT}>`
+    + '<subclause xt:type="insert" xt:dateTime="2024-04-10T14:10:54">'
+    + '<num xt:type="insert" xt:dateTime="2024-04-10T14:10:54">'
+    + '<xt:insText xt:action="start" xt:dateTime="2024-09-27T10:10:00" xt:id="n"/>8'
+    + '<xt:insText xt:action="end" xt:id="n"/></num>'
+    + '<p xt:type="insert" xt:dateTime="2024-04-10T14:10:54">Flexible ductwork must not account for '
+    + 'more than 6 m in length in any duct run.</p></subclause></clause>');
+  assert.equal(txt(d.documentElement), 'Flexible ductwork must not account for more than 6 m in length in any duct run.');
+  assert.equal(child(d.documentElement, 'subclause').getElementsByTagName('num').length, 0,
+    'the <num> is wholly inserted, so the 2025 subclause NUMBER does not survive with the text');
+});
+
+test('R73: a >=2024 delText range inside an inserted container is 2022 text and is kept', () => {
+  // The J5D2 shape: the draft wrapped the clause stem in a new <ol>/<li> and replaced the wording
+  // inside it. ncc.abcb.gov.au publishes NCC 2022 V1 J5D2 as "…apply to elements forming the
+  // envelope of a Class 2 to 9 building, other than—", which is exactly the delText run.
+  const d = base(`<clause ${XT}><ol xt:type="insert" xt:dateTime="2024-04-09T09:00:34">`
+    + '<li xt:type="insert" xt:dateTime="2024-04-09T09:00:34">elements forming the envelope of'
+    + '<xt:delText xt:action="start" xt:dateTime="2024-04-09T09:01:00" xt:id="d"/>'
+    + ' a Class 2 to 9 building, other than—<xt:delText xt:action="end" xt:id="d"/>'
+    + '<xt:insText xt:action="start" xt:dateTime="2024-04-09T09:01:00" xt:id="i"/>'
+    + ' a Class 2, 3, 5, 6, 7, 8 or 9 building; and<xt:insText xt:action="end" xt:id="i"/></li>'
+    + '</ol></clause>');
+  assert.equal(txt(d.documentElement), 'elements forming the envelope of a Class 2 to 9 building, other than—');
+});
+
+test('R73: an inserted container with nothing but inserted text under it is still deleted whole', () => {
+  const d = base(`<clause ${XT}><ol xt:type="insert" xt:dateTime="2024-04-09T09:00:34">`
+    + '<li xt:type="insert" xt:dateTime="2024-04-09T09:01:35">'
+    + '<xt:insText xt:action="start" xt:dateTime="2024-04-09T09:01:00" xt:id="i"/>'
+    + 'the external building fabric of—<xt:insText xt:action="end" xt:id="i"/></li></ol></clause>');
+  assert.equal(d.documentElement.getElementsByTagName('ol').length, 0);
+});
+
+test('R73: retention is only for a DRAFT INSERT — a <=2022 delete keeps its old meaning', () => {
+  // A pre-2022 deletion is recorded at element level BY DESIGN, so its content being untracked is
+  // not evidence of anything. Retaining on it would republish words the Code had already dropped.
+  const d = base(`<clause ${XT}>`
+    + '<p id="d2021" xt:type="delete" xt:dateTime="2021-06-01T00:00:00">removed before 2022</p>'
+    + '<p id="keep">2022</p></clause>');
+  assert.deepEqual(childrenNamed(d.documentElement, 'p').map(p => p.getAttribute('id')), ['keep']);
+});
+
+test('R73: inline and MathML text is not evidence — the tracking cannot reach inside it', () => {
+  // A milestone range brackets sibling TEXT; an inline element between the end of one range and the
+  // start of the next is covered by neither. A5G6 and volume-two H6D2 are the two instances in all
+  // four packages, both a single glossary word inside a wholly inserted sentence. Measured for
+  // MathML: 1,918 <math> elements, 0 carrying a milestone or an element-level mark anywhere inside.
+  const inlineOnly = `<subclause ${XT}><p>`
+    + '<xt:insText xt:action="start" xt:dateTime="2024-08-30T11:10:00" xt:id="a"/>to be'
+    + '<xt:insText xt:action="end" xt:id="a"/>'
+    + '<xref type="abcb-glossentry" href="x">non-combustible</xref>'
+    + '<xt:insText xt:action="start" xt:dateTime="2024-08-30T11:11:00" xt:id="b"/>, its'
+    + '<xt:insText xt:action="end" xt:id="b"/></p></subclause>';
+  assert.equal(baseCycleText(parse(inlineOnly).documentElement), '');
+  assert.equal(baseCycleText(parse(`<equation-block ${XT}><mathML><math><mi>x</mi></math></mathML></equation-block>`)
+    .documentElement), '');
+  assert.equal(baseCycleText(parse(`<li ${XT}>Particleboard structural flooring: AS 1860.2.</li>`)
+    .documentElement), 'Particleboard structural flooring: AS 1860.2.');
+});
+
+test('R73: NOT_BASE_CYCLE_TEXT is refused unless every entry carries checkable evidence', () => {
+  for (const e of NOT_BASE_CYCLE_TEXT) {
+    for (const k of ['file', 'tag', 'text', 'evidence']) {
+      assert.equal(typeof e[k], 'string', `${e.file}: ${k}`);
+      assert.ok(e[k].trim(), `${e.file}: ${k} is empty`);
+    }
+    assert.ok(e.evidence.length >= 80,
+      `${e.file}: ${e.evidence.length} characters of evidence — dropping text the base view kept needs a measurement`);
+  }
+  // The list is a closed set of MEASUREMENTS, so a duplicate key would make one entry unfireable
+  // and the staleness assertion would then fail the build for a reason nobody could act on.
+  const keys = NOT_BASE_CYCLE_TEXT.map(e => `${e.file}|${e.tag}|${e.text}`);
+  assert.equal(new Set(keys).size, keys.length, 'two entries key the same site');
 });
 
 test('baseViewKeeps is exported and states the rule for one element', () => {
@@ -645,7 +736,46 @@ test('a citation whose wrapper has no NCC 2022 content is DROPPED AND RECORDED (
     // The wrapper's only <table> is a 2024 insertion, so the base view leaves it empty.
     'XMLs/table-a1g1-limits.xml': `<?xml version="1.0"?><table-reference ${XT} id="_tab1"><num>A1G1a</num>`
       + '<title>Limits</title><table xt:type="insert" xt:dateTime="2024-08-30T11:12:31"><tgroup cols="1">'
-      + '<colspec colname="c1" colnum="1"/><tbody><row><entry>0.10</entry></row></tbody></tgroup></table></table-reference>',
+      + '<colspec colname="c1" colnum="1"/><tbody><row><entry>'
+      + '<xt:insText xt:action="start" xt:dateTime="2024-08-30T11:12:00" xt:id="t1"/>0.10'
+      + '<xt:insText xt:action="end" xt:id="t1"/>'
+      + '</entry></row></tbody></tgroup></table></table-reference>',
+  });
+});
+
+test('R73 pointer arm: an inserted pointer is decided on its TARGET, not on its own emptiness', () => {
+  // A <table-reference conref> carries no content — the table is in another file — so mechanism 1
+  // would delete it on evidence about the wrong document. Measured in volume-one: 27 pointers carry
+  // a 2025 insert mark and 4 name a wrapper that still holds NCC 2022 content, two of them V3
+  // C2V3's Tables C2V3a and C2V3b, cited by name in untracked 2022 prose. The pointer whose target
+  // is 2022 content is restored; the pointer whose target is a 2025 table is removed WITHOUT a
+  // droppedCitations record, because that citation is not one this edition loses.
+  withFixture(dir => {
+    const diagnostics = {};
+    const units = readPackage2022(dir, VOL1, { diagnostics });
+    const body = normalizeUnit(byId(units, 'A1G1'), { year: '2022', cdnKey: 'volume1' }).bodyMd;
+    assert.match(body, /### Table A1G1a — Kept/, 'the 2022 table its own base text cites is restored');
+    assert.doesNotMatch(body, /Table A1G1b/, 'a 2025 table behind a 2025 pointer is never published as 2022 law');
+    assert.deepEqual(diagnostics.droppedCitations, [],
+      'a 2025 pointer at a 2025 table is not a citation this edition loses');
+    assert.equal(diagnostics.draftPointersDropped, 1);
+    assert.equal(diagnostics.draftPointersRestored.length, 1);
+  }, {
+    'XMLs/A1G1-scope.xml': `<?xml version="1.0"?><clause ${XT} outputclass="ncc-clause" id="_a1g1">`
+      + '<sptc>A1G1</sptc><title>Scope</title><archive-num/>'
+      + '<subclause outputclass="subclause"><title>SubClause</title><num>1</num>'
+      + '<p>Sized in accordance with Table A1G1a.</p>'
+      + '<table-reference conref="c1" id="_tabKept" xt:type="insert" xt:dateTime="2024-08-30T11:12:31"><num/><title/></table-reference>'
+      + '<table-reference conref="c2" id="_tabDraft" xt:type="insert" xt:dateTime="2024-08-30T11:12:31"><num/><title/></table-reference>'
+      + '</subclause></clause>',
+    'XMLs/table-a1g1-kept.xml': `<?xml version="1.0"?><table-reference ${XT} id="_tabKept"><num>A1G1a</num>`
+      + '<title>Kept</title><table><tgroup cols="1"><colspec colname="c1" colnum="1"/>'
+      + '<tbody><row><entry>0.10</entry></row></tbody></tgroup></table></table-reference>',
+    'XMLs/table-a1g1-draft.xml': `<?xml version="1.0"?><table-reference ${XT} id="_tabDraft"><num>A1G1b</num>`
+      + '<title>Draft</title><table xt:type="insert" xt:dateTime="2024-08-30T11:12:31"><tgroup cols="1">'
+      + '<colspec colname="c1" colnum="1"/><tbody><row><entry>'
+      + '<xt:insText xt:action="start" xt:dateTime="2024-08-30T11:12:00" xt:id="z"/>0.20'
+      + '<xt:insText xt:action="end" xt:id="z"/></entry></row></tbody></tgroup></table></table-reference>',
   });
 });
 
@@ -810,7 +940,12 @@ for (const doc of DOCUMENTS_2022) {
       assert.ok(!/insText|delText/.test(u.node.toString()), `${who}: tracked markup survived`);
       (function scan(el) {
         checked++;
-        assert.ok(baseViewKeeps(el), `${who}: <${el.nodeName}> is 2025-draft text inside a 2022 unit`);
+        // R73: an element the mark rejects survives ONLY as a retention, and a retention has to
+        // show its evidence — base-cycle text under it, or a conref whose target still holds NCC
+        // 2022 content. Anything else carrying a 2025 insert mark is draft text in a 2022 unit.
+        assert.ok(baseViewKeeps(el) || baseCycleText(el)
+          || ((el.nodeName === 'table-reference' || el.nodeName === 'image-reference') && el.getAttribute('conref')),
+        `${who}: <${el.nodeName}> is 2025-draft text inside a 2022 unit`);
         for (let c = el.firstChild; c; c = c.nextSibling) if (c.nodeType === 1) scan(c);
       })(u.node);
     }
@@ -895,7 +1030,10 @@ test('a clause reachable only through a 2025 insertion, and supplied by nothing 
     'XMLs/FlattenedFile.xml': `<?xml version="1.0"?><abcb-map ${XT} publishing-id="vol1"><title>T</title>`
       + '<topicset navtitle="Health and amenity" section-num="Section F">'
       + '<part outputclass="ncc-part" id="_F1" xt:type="insert" xt:dateTime="2024-03-15T00:00:00">'
-      + '<num>F1</num><title>Surface water management</title>'
+      + '<num><xt:insText xt:action="start" xt:dateTime="2024-03-15T00:00:00" xt:id="n"/>F1'
+      + '<xt:insText xt:action="end" xt:id="n"/></num>'
+      + '<title><xt:insText xt:action="start" xt:dateTime="2024-03-15T00:00:00" xt:id="t"/>'
+      + 'Surface water management<xt:insText xt:action="end" xt:id="t"/></title>'
       + '<subtopic>' + clauseref('F1D12-roof-coverings.xml') + '</subtopic></part></topicset></abcb-map>',
     'XMLs/glossary-Existing-building-WA.xml': null,
   });
