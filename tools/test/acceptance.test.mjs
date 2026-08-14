@@ -168,7 +168,8 @@ for (const ed of editions) {
       // out. Directory basename equality is the exact form of "the dirname ends with the
       // volume"; a bare endsWith would also accept `…/xvolume-one`.
       // Clause files only. A glossary term is one file per EDITION and lives in `glossary/` by
-      // construction (emit.mjs `unitRelPath`), so its `volume:` records provenance, not location.
+      // construction (emit.mjs `unitRelPath`); it carries no `volume:` at all, because several
+      // documents publish it — it states `sources:` instead (R33).
       for (const f of byClause.get(id)) {
         assert.equal(path.basename(path.dirname(f)), volumeOf.get(f),
           `${ed}: clause ${id} at ${f} declares volume: ${volumeOf.get(f)} but does not live in that directory — the discriminator is invisible to a glob`);

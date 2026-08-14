@@ -9,7 +9,8 @@
 //     surfaced as SILENT OVERWRITES — last-write-wins, no warning, a state-specific clause lost
 //     under the national filename. A uniqueness check turns that whole defect class from data
 //     loss into a build failure. The policy's branches are not interchangeable; see
-//     resolveUniqueness.
+//     resolveUniqueness. The ONE path deliberately claimed by several documents is the glossary,
+//     which every volume embeds in full; foldGlossary decides what that single file says (R33).
 //  2. NO CLAUSE MAY SHIP WITHOUT A web_url. `web_url:` is in the first six lines so an agent can
 //     verify a citation. weblinks.mjs is written to fail CLOSED — where the data does not
 //     identify one page it answers null rather than a plausible wrong page — and this assertion
@@ -47,7 +48,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { DOCUMENTS_2025, readDocument2025 } from './read-2025.mjs';
 import { DOCUMENTS_2022, readPackage2022 } from './read-2022.mjs';
-import { normalizeUnit } from './normalize.mjs';
+import { normalizeUnit, figureUrlPrefix } from './normalize.mjs';
 import { emitUnit, unitRelPath } from './emit.mjs';
 import { buildLinkIndex, resolveWebUrl } from './weblinks.mjs';
 import { buildIndexes } from './index.mjs';
@@ -253,6 +254,9 @@ export function warningCategory(warning) {
 /** Codepoint sort. Never localeCompare — locale-dependent order is not reproducible. */
 const byCodepoint = (a, b) => (a < b ? -1 : a > b ? 1 : 0);
 
+/** Literal text as a regex fragment. */
+const escapeRe = s => String(s).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+
 /* ============================================================================
  * Arguments
  * ========================================================================= */
@@ -322,16 +326,17 @@ export function inScope(unit, sections) {
  * ========================================================================= */
 
 /**
- * @param {Array<{relPath: string, content: string, docKey: string, unit: object,
- *                normalized: object, emitOpts: object}>} records  in emission order
+ * @param {Array<{relPath: string, content: string, docKey: string, docLabel: string,
+ *                figurePrefix: string, unit: object, normalized: object,
+ *                emitOpts: object}>} records  in emission order, which IS document order
  * @returns {{write: Map<string,string>, duplicates: number,
- *            merges: Array<{relPath, docKey, senses}>}}
- * @throws when one path is claimed by two documents with different content.
+ *            merges: Array<{relPath, docKey, senses}>, glossary: Array<object>}}
+ * @throws when one path is claimed by two units with different content and no rule covers it.
  *
  * The branches, and why each is not the others:
  *
- *  * SAME PATH, IDENTICAL BYTES -> written once. This is the expected cross-document case: the
- *    2025 glossary is embedded in every volume. Calling it a collision would fail correct builds.
+ *  * SAME PATH, IDENTICAL BYTES -> written once. Calling that a collision would fail correct
+ *    builds; two documents can legitimately produce the same file.
  *  * SAME PATH, DIFFERENT BYTES, SAME DOCUMENT, EVERY UNIT A GLOSSARY ENTRY -> merged under
  *    `## Definition n` headings in document order (R23). The NCC genuinely defines "Appropriate
  *    authority" twice with different meanings — one scoped to the Fire Safety Verification Method,
@@ -345,10 +350,12 @@ export function inScope(unit, sections) {
  *    naming rule lost a distinguishing attribute. That is ⊕ trap 1 exactly — Volume Two Part H6's
  *    NSW overview colliding with the national body inside one document — and absorbing it into a
  *    `## Definition n` file would report the corpus's worst defect class as an informational line.
- *  * SAME PATH, DIFFERENT BYTES, DIFFERENT DOCUMENTS -> throws. Merging would fabricate a
- *    definition the NCC does not publish; picking one would silently drop the other. Measured: the
- *    2025 glossary term "Hours of operation" differs between Volume One and Volumes Two/Three (an
- *    ABCB typo), so this fires on a full 2025 build and is a human ruling, not a build decision.
+ *  * ANY GLOSSARY PATH, ACROSS DOCUMENTS -> folded to one file. See foldGlossary (R33).
+ *  * SAME PATH, DIFFERENT BYTES, DIFFERENT DOCUMENTS, ANY OTHER KIND -> throws. Merging would
+ *    fabricate text the source does not publish; picking one would silently drop the other. No
+ *    non-glossary kind can reach this today — `unitRelPath` files every other unit under its own
+ *    volume directory, so two documents cannot claim one path — which is exactly why it stays: it
+ *    is the guard for the day a naming rule changes and they can.
  *
  * Documents are grouped BEFORE contents are compared across them. Folding record by record
  * instead would compare a second volume's first sense against an already-merged file and report a
@@ -365,18 +372,22 @@ export function resolveUniqueness(records) {
 
   const write = new Map();
   const mergesByPath = new Map();
+  const glossary = [];
   const sameDoc = [];
   const crossDoc = [];
   let duplicates = 0;
 
   for (const relPath of [...byPath.keys()].sort(byCodepoint)) {
-    const perDocContent = [];
+    // One resolved record per document, in DOCUMENT order — `byPath`'s inner Map preserves the
+    // insertion order of `records`, which the build fills document by document. Everything below
+    // that speaks of "the first document" means the first entry of this array.
+    const perDocument = [];
     let collided = false;
     for (const [docKey, recs] of byPath.get(relPath)) {
       const distinct = [];
       for (const r of recs) if (!distinct.some(d => d.content === r.content)) distinct.push(r);
       duplicates += recs.length - distinct.length;
-      if (distinct.length === 1) { perDocContent.push({ docKey, content: distinct[0].content }); continue; }
+      if (distinct.length === 1) { perDocument.push(distinct[0]); continue; }
       if (!distinct.every(r => r.unit?.kind === 'glossary')) {
         sameDoc.push({ relPath, docKey, variants: distinct });
         collided = true;
@@ -385,30 +396,156 @@ export function resolveUniqueness(records) {
       // Reported once per path, not once per document: the same two senses recur in every volume
       // that embeds the glossary, and four identical report lines would read like four problems.
       if (!mergesByPath.has(relPath)) mergesByPath.set(relPath, { relPath, docKey, senses: distinct.length });
-      perDocContent.push({ docKey, content: mergeSenses(distinct) });
+      perDocument.push(mergeSenses(distinct));
     }
     // A path that already failed inside one document is not also compared across documents: the
     // build is failing either way, and the second report would be noise on top of the real one.
     if (collided) continue;
 
+    if (perDocument.length && perDocument.every(r => r.unit?.kind === 'glossary')) {
+      const folded = foldGlossary(relPath, perDocument);
+      write.set(relPath, folded.content);
+      glossary.push(folded.census);
+      continue;
+    }
+
     const variants = [];
-    for (const c of perDocContent) if (!variants.some(v => v.content === c.content)) variants.push(c);
-    duplicates += perDocContent.length - variants.length;
+    for (const c of perDocument) if (!variants.some(v => v.content === c.content)) variants.push(c);
+    duplicates += perDocument.length - variants.length;
     if (variants.length === 1) write.set(relPath, variants[0].content);
     else crossDoc.push({ relPath, variants });
   }
 
   if (sameDoc.length || crossDoc.length) throw conflictError({ sameDoc, crossDoc });
-  return { write, duplicates, merges: [...mergesByPath.values()] };
+  return { write, duplicates, merges: [...mergesByPath.values()], glossary };
+}
+
+/* ============================================================================
+ * The glossary: one file per edition, however many volumes embed it (R33)
+ * ========================================================================= */
+
+/** What a neutralised figure URL reads as. Never emitted; it exists only to be compared. */
+const FIGURE_CDN_PLACEHOLDER = '{figure-cdn}';
+
+/**
+ * One document's copy of a glossary entry, with the part of it that is OUR artefact removed.
+ *
+ * Every volume embeds the whole glossary, and each embeds its own copy of the figures, so this
+ * pipeline hands the same entry a different `cdnKey` per volume: `…/2025/volume1/x.svg` from
+ * Volume One and `…/2025/volume2/x.svg` from Volume Two. Nine 2025 entries differ across the four
+ * documents in nothing else. Comparing raw bodies would classify those nine as text the NCC
+ * publishes differently per volume, which is false — and would put nine spurious "as published in
+ * …" merges in front of a reader as if the Code disagreed with itself.
+ *
+ * Only the emitting document's OWN prefix is neutralised, never a volume name wherever it appears,
+ * so two entries citing genuinely different files still differ.
+ */
+function neutralizeFigureCdn(record) {
+  const prefix = record.figurePrefix;
+  if (!prefix) {
+    throw new Error(
+      `build: glossary record ${record.relPath} from ${record.docKey} carries no figurePrefix. The `
+      + 'glossary fold has to tell "the same figure, addressed under this volume\'s CDN key" from '
+      + '"a different figure", and without the prefix it cannot — it would report every '
+      + 'figure-bearing entry as text the volumes disagree on.',
+    );
+  }
+  return record.normalized.bodyMd.split(`${prefix}/`).join(`${FIGURE_CDN_PLACEHOLDER}/`);
+}
+
+/**
+ * Group in first-seen order, so the result never depends on Map iteration or on a sort.
+ * @returns {Array<{key: string, members: Array}>}
+ */
+function classify(items, keyOf) {
+  const out = [];
+  for (const item of items) {
+    const key = keyOf(item);
+    let cls = out.find(c => c.key === key);
+    if (!cls) out.push(cls = { key, members: [] });
+    cls.members.push(item);
+  }
+  return out;
+}
+
+/** `Volume One`, `Volume One and Housing Provisions`, `Volume One, Volume Two and Volume Three`. */
+function listDocuments(records) {
+  const names = records.map(r => r.docLabel || r.docKey);
+  if (names.length <= 1) return names.join('');
+  return `${names.slice(0, -1).join(', ')} and ${names[names.length - 1]}`;
+}
+
+/**
+ * R33 — the glossary is ONE file per edition, and this decides what that file says.
+ *
+ * `unitRelPath` already routes every glossary entry to `{edition}/glossary/`, so up to four
+ * documents' copies land on one path. They are never byte-identical (`citation:`, `web_url:` and
+ * `sources:` are per-document by construction), so the question is only ever about the BODY:
+ *
+ *  * ONE body, once our own per-volume figure CDN key is neutralised -> the file is the FIRST
+ *    document's copy, cited to that document, with `sources:` naming all of them. Measured across
+ *    NCC 2025: 545 of the 555 shared paths are identical outright and 9 more are identical once
+ *    the figure key is neutralised.
+ *  * MORE THAN ONE body -> one file carrying every variant under a `## ` heading that names the
+ *    documents publishing it. Measured: exactly one entry, "Hours of operation", where Volumes Two
+ *    and Three carry an ABCB typo ("is greater thanat least 20%") that Volume One and the Housing
+ *    Provisions do not. Emitting one volume's wording would silently drop the other's, and one
+ *    file per variant would hide the discrepancy behind a filename nobody globs for. An agent
+ *    grepping the term sees that the Code disagrees with itself, which is the fact it needs.
+ *
+ * The two cases are ONE rule with one and several classes, not a special case bolted onto a
+ * general one: a new divergence in a future edition lands in the second branch automatically
+ * rather than failing a build that has to be re-ruled.
+ */
+function foldGlossary(relPath, perDocument) {
+  const sources = perDocument.map(r => r.docKey);
+  const canonical = perDocument[0];
+  const raw = classify(perDocument, r => r.normalized.bodyMd);
+  const classes = classify(perDocument, neutralizeFigureCdn);
+  const census = {
+    relPath,
+    sources,
+    variants: classes.length,
+    // True when neutralising OUR cdnKey is what collapsed them — the nine figure-bearing entries.
+    figureNormalised: raw.length > classes.length,
+    documents: classes.map(c => c.members.map(m => m.docKey)),
+  };
+
+  if (classes.length === 1) {
+    return { content: emitUnit(canonical.unit, canonical.normalized, { ...canonical.emitOpts, sources }).content, census };
+  }
+  // Each class is represented by its own first document, so the heading and the text under it come
+  // from the same place. Flat `## ` headings, deliberately: an entry that is BOTH multi-sense and
+  // multi-document would otherwise need a heading level per axis, and every sense would still be
+  // visible here — losing content is the failure mode this guards against, not untidy nesting.
+  const parts = classes.map(c => c.members[0]);
+  return {
+    content: mergedRecord(canonical, parts, classes.map(c => `As published in ${listDocuments(c.members)}`), { sources }).content,
+    census,
+  };
 }
 
 /** R23: one file, both senses, each under its own heading, in document order. */
 function mergeSenses(recs) {
-  const bodies = recs.map((r, i) => [`## Definition ${i + 1}`, r.normalized.bodyMd].filter(Boolean).join('\n\n'));
+  return mergedRecord(recs[0], recs, recs.map((_, i) => `Definition ${i + 1}`));
+}
+
+/**
+ * One record standing for several, their bodies stacked under `## ` headings.
+ *
+ * Returns a RECORD rather than a string so a merge can be merged again — the glossary fold stacks
+ * per-document copies that may themselves already be per-document sense merges — and so the result
+ * carries the `unit`, `normalized` and `emitOpts` the next stage needs.
+ */
+function mergedRecord(canonical, parts, headings, emitExtra = {}) {
+  const bodyMd = parts
+    .map((p, i) => [`## ${headings[i]}`, p.normalized.bodyMd].filter(Boolean).join('\n\n'))
+    .join('\n\n');
   const definedTerms = [];
-  for (const r of recs) for (const t of r.normalized.definedTerms ?? []) if (!definedTerms.includes(t)) definedTerms.push(t);
-  const first = recs[0];
-  return emitUnit(first.unit, { ...first.normalized, bodyMd: bodies.join('\n\n'), definedTerms }, first.emitOpts).content;
+  for (const p of parts) for (const t of p.normalized.definedTerms ?? []) if (!definedTerms.includes(t)) definedTerms.push(t);
+  const normalized = { ...canonical.normalized, bodyMd, definedTerms };
+  const emitOpts = { ...canonical.emitOpts, ...emitExtra };
+  return { ...canonical, normalized, emitOpts, content: emitUnit(canonical.unit, normalized, emitOpts).content };
 }
 
 /**
@@ -421,12 +558,14 @@ function bodyOf(content) {
 }
 
 function conflictError({ sameDoc, crossDoc }) {
-  // MEASURED 2026-08-14, all five 2025 documents: 555 glossary paths are shared across documents
-  // and NONE is byte-identical, because `volume:`, `citation:` (the V1/V2/V3/HP prefix) and
-  // `web_url:` are all volume-specific. 545 differ ONLY in that provenance; 10 differ in body
-  // text. Reporting those as one undifferentiated list of 555 would bury the ten that matter, so
-  // they are split: the provenance class is one decision taken once, the body class is ten
-  // separate readings of the published text.
+  // Cross-document conflicts are split on whether the BODIES agree, because the two classes need
+  // completely different rulings: identical bodies mean one file has to be given one provenance,
+  // while differing bodies mean the sources genuinely publish different text under one name.
+  // The measured instance was the 2025 glossary — 555 shared paths, 545 differing only in
+  // provenance, 10 in body text — and it is now resolved BY RULE in foldGlossary rather than
+  // reported here. The split stays because the distinction is what makes any such report
+  // actionable, and because a naming change that let two documents claim one non-glossary path
+  // would land here with no measurement behind it at all.
   const provenance = crossDoc.filter(c => c.variants.every(v => bodyOf(v.content) === bodyOf(c.variants[0].content)));
   const substantive = crossDoc.filter(c => !provenance.includes(c));
   const total = sameDoc.length + crossDoc.length;
@@ -454,9 +593,9 @@ function conflictError({ sameDoc, crossDoc }) {
 
   if (provenance.length) {
     lines.push('', `  [A] ${provenance.length} path(s) differ ONLY in provenance frontmatter — the body text is identical.`,
-      '      The glossary is embedded once per volume, so one file under {edition}/glossary/ has to be',
-      '      given ONE volume, citation prefix and web_url. That is the glossary-dedupe decision, and it',
-      '      is a corpus-shape decision rather than something this build can infer.');
+      '      Several documents publish the same text and one file has to be given ONE citation prefix',
+      '      and web_url. That is a corpus-shape decision rather than something this build can infer.',
+      '      The glossary makes it by rule (foldGlossary); anything else reaching here does not.');
     for (const { relPath, variants } of provenance.slice(0, 5)) {
       lines.push(`      ${relPath}  (${variants.map(v => v.docKey).join(' vs ')})`);
     }
@@ -580,7 +719,7 @@ function buildEdition(editionKey, opts) {
     perDoc: [],
     kinds: new Map(),
     warnings: new Map(),
-    figures: new Set(),
+    figures: new Set(),         // every {year}/{cdnKey}/{src} the documents READ contain
     webUrl: new Map(),          // kind -> {resolved, total}
     parity: new Map(),          // docKey -> {units: Map, tableRefs: Map, full: boolean}
   };
@@ -632,7 +771,14 @@ function buildEdition(editionKey, opts) {
 
       const emitOpts = { citationPrefix: doc.citationPrefix, webUrl };
       const { relPath, content } = emitUnit(unit, normalized, emitOpts);
-      records.push({ relPath, content, docKey: doc.key, unit, normalized, emitOpts });
+      // `docLabel` and `figurePrefix` are carried for the glossary fold alone: it names the
+      // documents behind each variant in prose, and it has to recognise this document's own figure
+      // CDN prefix to tell our per-volume artefact from text the Code publishes differently.
+      records.push({
+        relPath, content, docKey: doc.key, docLabel: doc.volumeLabel ?? doc.key,
+        figurePrefix: figureUrlPrefix({ year: ed.year, cdnKey: doc.cdnKey }),
+        unit, normalized, emitOpts,
+      });
 
       const kindKey = unit.kind === 'page' && unit.overview ? 'page (overview)' : unit.kind;
       stats.kinds.set(kindKey, (stats.kinds.get(kindKey) ?? 0) + 1);
@@ -670,13 +816,24 @@ function buildEdition(editionKey, opts) {
   // useful diagnostic there is, and throwing here would withhold it at exactly the moment
   // somebody needs it to work out what went wrong.
   const failures = [];
-  let resolved = { write: new Map(), duplicates: 0, merges: [] };
+  let resolved = { write: new Map(), duplicates: 0, merges: [], glossary: [] };
   try {
     resolved = resolveUniqueness(records);
   } catch (e) { failures.push(e.message); }
   if (unresolvedClauses.length) failures.push(unresolvedClauseError(editionKey, unresolvedClauses));
   const parityFailure = parityCheck(editionKey, stats.parity);
   if (parityFailure) failures.push(parityFailure);
+
+  // The figures the corpus PUBLISHES, read back off the bytes about to be written rather than
+  // accumulated from the units. The two differ, and only this one is actionable: every volume
+  // embeds the glossary, so a shared entry's figure is counted once per volume in `stats.figures`
+  // while the folded file publishes exactly one URL for it. Measured on NCC 2025: 456 against 426.
+  // `sync-figures` scans the same bytes, so a build report and a figure sweep now agree by
+  // construction instead of disagreeing by 30 and costing somebody an afternoon.
+  const figureUrl = new RegExp(
+    `(?:${docs.map(d => escapeRe(figureUrlPrefix({ year: ed.year, cdnKey: d.cdnKey }))).join('|')})/[^)\\s]+`, 'g');
+  const publishedFigures = new Set();
+  for (const content of resolved.write.values()) for (const m of content.matchAll(figureUrl)) publishedFigures.add(m[0]);
 
   const firstByPath = new Map();
   for (const r of records) if (!firstByPath.has(r.relPath)) firstByPath.set(r.relPath, r.unit);
@@ -696,7 +853,14 @@ function buildEdition(editionKey, opts) {
     unresolvedOther,
     permittedNullClauses,
     droppedCitations,
-    stats: { ...stats, duplicates: resolved.duplicates, merges: resolved.merges, paths: resolved.write.size },
+    stats: {
+      ...stats,
+      duplicates: resolved.duplicates,
+      merges: resolved.merges,
+      glossary: resolved.glossary,
+      publishedFigures,
+      paths: resolved.write.size,
+    },
   };
 }
 
@@ -817,11 +981,17 @@ export function report(built, io, opts) {
   out.push(`${pad('units by kind', 22)}${[...s.kinds.keys()].sort(byCodepoint).map(k => `${k} ${s.kinds.get(k)}`).join(' · ') || '(none)'}`);
   out.push(`${pad('web_url', 22)}${[...s.webUrl.keys()].sort(byCodepoint)
     .map(k => `${k} ${s.webUrl.get(k).resolved}/${s.webUrl.get(k).total} (${pct(s.webUrl.get(k).resolved, s.webUrl.get(k).total)})`).join(' · ') || '(none)'}`);
-  out.push(`${pad('figures', 22)}${s.figures.size} distinct`);
+  // Two numbers because they answer two questions, and printing only the first invites an operator
+  // to chase a discrepancy against `sync-figures` that is not one.
+  const folded = s.figures.size - (s.publishedFigures?.size ?? s.figures.size);
+  out.push(`${pad('figures', 22)}${s.publishedFigures?.size ?? s.figures.size} distinct URLs published`
+    + ` · ${s.figures.size} distinct in the documents as read`
+    + (folded > 0 ? ` (${folded} are other volumes' copies of a shared glossary entry's figure)` : ''));
   const warnTotal = [...s.warnings.values()].reduce((a, b) => a + b, 0);
   out.push(`${pad('warnings', 22)}${warnTotal}${warnTotal ? ` — ${[...s.warnings.keys()].sort(byCodepoint).map(k => `${k} ${s.warnings.get(k)}`).join(' · ')}` : ''}`);
   out.push(`${pad('uniqueness', 22)}${s.paths} paths · ${s.duplicates} identical duplicate${s.duplicates === 1 ? '' : 's'} · ${s.merges.length} merged`);
   for (const m of s.merges) out.push(`${pad('', 22)}merged ${m.senses} senses into ${m.relPath} (first seen in ${m.docKey})`);
+  out.push(...glossaryLines(s));
   out.push(io
     ? `${pad('files', 22)}written ${io.written} · deleted ${io.removedFiles} · directories removed ${io.removedDirs} · left in place ${io.kept}`
     : `${pad('files', 22)}NOTHING WRITTEN — this run failed its assertions, so the previous corpus is untouched`);
@@ -840,6 +1010,36 @@ export function report(built, io, opts) {
   if (built.failures.length) out.push('', `ASSERTIONS FAILED (${built.failures.length}):`, '', ...built.failures);
   out.push(RULE);
   return out.join('\n');
+}
+
+/**
+ * The glossary fold (R33), as a census rather than a claim.
+ *
+ * Printed only when the run produced glossary files, but then ALWAYS — including the zero cases.
+ * The three classes are the whole decision: how many entries every document agreed on, how many
+ * agreed once our own per-volume figure CDN key was neutralised, and how many the documents
+ * genuinely publish differently. The last class is named path by path with the documents behind
+ * each variant, because it is a discrepancy in the published Code and a count alone would hide it.
+ */
+function glossaryLines(s) {
+  const list = s.glossary ?? [];
+  if (!list.length) return [];
+  const shared = list.filter(g => g.sources.length > 1);
+  const variants = shared.filter(g => g.variants > 1);
+  // Counted on the remainder, not on the whole list, so the classes partition `shared` exactly
+  // even if an entry ever both needed neutralising AND still disagreed.
+  const collapsed = shared.filter(g => g.variants === 1);
+  const figures = collapsed.filter(g => g.figureNormalised);
+  const lines = [`${pad('glossary', 22)}${list.length} path${list.length === 1 ? '' : 's'}`
+    + ` · ${shared.length} shared across documents`
+    + ` · ${collapsed.length - figures.length} body-identical`
+    + ` · ${figures.length} figure-URL normalised`
+    + ` · ${variants.length} published differently`];
+  for (const g of variants) {
+    lines.push(`${pad('', 22)}${g.relPath}: ${g.variants} variants — `
+      + g.documents.map(d => `[${d.join(', ')}]`).join(' / '));
+  }
+  return lines;
 }
 
 /**

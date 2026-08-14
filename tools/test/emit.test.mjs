@@ -346,15 +346,16 @@ test('defined_terms is a block list in document order, each item quoted only whe
  * 9. Frontmatter shape: fixed key order, omissions, routing.    *
  * ============================================================ */
 
-const FIXED_ORDER = ['clause', 'term', 'title', 'citation', 'web_url', 'edition', 'volume',
+const FIXED_ORDER = ['clause', 'term', 'title', 'citation', 'web_url', 'edition', 'volume', 'sources',
   'jurisdiction', 'supersedes', 'building_classes_excluded', 'defined_terms'];
 
 test('keys appear in the fixed order, and keys with no value are omitted', () => {
   const keys = fm(clause()).filter(l => /^[a-z_]+:/.test(l)).map(l => l.split(':')[0]);
   assert.deepEqual(keys, ['clause', 'title', 'citation', 'web_url', 'edition', 'volume', 'jurisdiction']);
+  // `term` and `sources` are the glossary's two keys; a clause carries neither.
   const full = fm(clause({ supersedes: '2019: A5.6', buildingClasses: 'Class 2' }),
     { ...NORM, definedTerms: ['t'] }).filter(l => /^[a-z_]+:/.test(l)).map(l => l.split(':')[0]);
-  assert.deepEqual(full, FIXED_ORDER.filter(k => k !== 'term'));
+  assert.deepEqual(full, FIXED_ORDER.filter(k => k !== 'term' && k !== 'sources'));
 });
 
 test('a glossary unit uses term: in place of clause:, and never carries clause metadata', () => {
@@ -363,6 +364,70 @@ test('a glossary unit uses term: in place of clause:, and never carries clause m
   assert.ok(f.includes('term: Fire source feature'));
   assert.ok(!f.some(l => l.startsWith('clause:')));
   assert.ok(!f.some(l => l.startsWith('building_classes_excluded:')), 'building classes belong to clauses');
+});
+
+/* -- sources: the glossary's provenance, in place of volume: (R33) -- */
+
+const gloss = (extra = {}) => ({ edition: '2025', volume: 'volume-two', kind: 'glossary', id: null,
+  term: 'Flight', title: 'Flight', state: null, ...extra });
+
+test('a glossary file states sources:, never volume: — one file cannot sit in one volume', () => {
+  // `unitRelPath` puts every glossary entry under {edition}/glossary/, because all four volumes
+  // publish the same glossary. `volume:` there would name one arbitrary document out of four and
+  // read as location; `sources:` states the set, which is the fact an agent can act on.
+  const f = fm(gloss());
+  assert.ok(f.includes('sources: [volume-two]'), f.join('\n'));
+  assert.ok(!f.some(l => l.startsWith('volume:')), 'volume: is replaced, not supplemented');
+  assert.ok(fm(clause()).includes('volume: volume-one'), 'every other kind still carries volume:');
+});
+
+test('sources defaults to the document read, and the build widens it, in the given order', () => {
+  assert.ok(fm(gloss()).includes('sources: [volume-two]'));
+  const wide = fm(gloss(), NORM, { citationPrefix: 'NCC 2025 V1', webUrl: null,
+    sources: ['volume-one', 'volume-two', 'volume-three', 'housing-provisions'] });
+  assert.ok(wide.includes('sources: [volume-one, volume-two, volume-three, housing-provisions]'), wide.join('\n'));
+  // Order is the caller's, never sorted: it is document order, and the first entry is the document
+  // the file's citation: and web_url: were taken from.
+  const rev = fm(gloss(), NORM, { citationPrefix: 'NCC 2025 V1', webUrl: null, sources: ['volume-three', 'volume-one'] });
+  assert.ok(rev.includes('sources: [volume-three, volume-one]'), rev.join('\n'));
+});
+
+test('sources is a ONE-LINE flow sequence, so citation and web_url stay in the grep -A6 window', () => {
+  const { content } = emitUnit(gloss(), { ...NORM, definedTerms: ['x'] },
+    { citationPrefix: 'NCC 2025 V1', webUrl: 'https://ncc.abcb.gov.au/x',
+      sources: ['volume-one', 'volume-two', 'volume-three', 'housing-provisions'] });
+  const head = content.split('\n').slice(0, 7).join('\n');
+  assert.match(head, /\ncitation: /);
+  assert.match(head, /\nweb_url: /);
+  assert.equal(content.split('\n').filter(l => l.startsWith('sources:')).length, 1, 'one line, not a block sequence');
+  assert.ok(!content.includes('sources:\n'), 'a block sequence would push web_url out of the window');
+});
+
+test('an empty or repeating sources list throws — provenance nobody can trust is worse than none', () => {
+  const opts = { citationPrefix: 'NCC 2025 V1', webUrl: null };
+  assert.throws(() => emitUnit(gloss(), NORM, { ...opts, sources: [] }), /no source document/);
+  assert.throws(() => emitUnit(gloss(), NORM, { ...opts, sources: ['', '  '] }), /no source document/);
+  // A glossary unit's file is placed by `glossaryDir`, not by its volume, so an empty `volume` is
+  // NOT caught by the path check — it reaches the frontmatter. Before `sources:` it shipped as an
+  // empty `volume:`; now the same hole fails the build.
+  assert.throws(() => emitUnit(gloss({ volume: '' }), NORM, opts), /no source document/);
+  assert.throws(() => emitUnit(gloss(), NORM, { ...opts, sources: ['volume-one', 'volume-one'] }),
+    /names a document more than once/);
+});
+
+test('a flow item that needs quoting gets it — a bare comma would split one name into two', () => {
+  const opts = { citationPrefix: 'NCC 2025 V1', webUrl: null };
+  const line = s => fm(gloss(), NORM, { ...opts, sources: s }).find(l => l.startsWith('sources:'));
+  assert.equal(line(['a, b']), 'sources: ["a, b"]');      // the comma would otherwise be a separator
+  assert.equal(line(['[x]']), 'sources: ["[x]"]');
+  assert.equal(line(['no']), 'sources: ["no"]');          // YAML 1.1 boolean
+  assert.equal(line(['a', 'b']), 'sources: [a, b]');      // …and nothing else is quoted
+});
+
+test('sources is ignored by every kind that is not a glossary entry', () => {
+  const f = fm(clause(), NORM, { citationPrefix: 'NCC 2025 V1', webUrl: null, sources: ['volume-three'] });
+  assert.ok(f.includes('volume: volume-one'));
+  assert.ok(!f.some(l => l.startsWith('sources:')), 'a clause lives in exactly one volume');
 });
 
 test('a null web_url omits the key entirely rather than emitting an empty value', () => {
@@ -486,11 +551,46 @@ function parseFrontmatter(content, file) {
     const kv = /^([a-z_]+):(?: (.*))?$/.exec(l);
     assert.ok(kv, `${file}: unparseable frontmatter line: ${JSON.stringify(l)}`);
     order.push(kv[1]);
-    if (kv[2] === undefined) { list = []; out[kv[1]] = list; } else { list = null; out[kv[1]] = unquote(kv[2], file); }
+    if (kv[2] === undefined) { list = []; out[kv[1]] = list; } else { list = null; out[kv[1]] = parseValue(kv[2], file); }
   }
   assert.equal(lines[end + 1], '', `${file}: no blank line after frontmatter`);
   return { data: out, order, bodyStart: end + 2 };
 }
+
+/** A scalar, or the one-line flow sequence `sources:` is emitted as. */
+function parseValue(v, file) {
+  if (!v.startsWith('[')) return unquote(v, file);
+  assert.ok(v.endsWith(']'), `${file}: unterminated flow sequence: ${v}`);
+  const inner = v.slice(1, -1).trim();
+  return inner === '' ? [] : splitFlow(inner, file).map((item) => {
+    // In flow context these five characters also end a plain scalar, so an item carrying one has
+    // to be quoted. The scalar rules `unquote` checks are necessary here but not sufficient.
+    if (!item.startsWith('"')) assert.ok(!/[,[\]{}]/.test(item), `${file}: unquoted flow item contains an indicator: ${item}`);
+    return unquote(item, file);
+  });
+}
+
+/** Split on the commas that are NOT inside a quoted scalar. */
+function splitFlow(s, file) {
+  const items = [];
+  for (let i = 0; i <= s.length;) {
+    let j = i;
+    let quoted = false;
+    for (; j < s.length; j++) {
+      if (quoted) { if (s[j] === '\\') j++; else if (s[j] === '"') quoted = false; continue; }
+      if (s[j] === '"') { quoted = true; continue; }
+      if (s[j] === ',') break;
+    }
+    assert.ok(!quoted, `${file}: unterminated quoted item in flow sequence: ${s}`);
+    const item = s.slice(i, j).trim();
+    assert.ok(item !== '', `${file}: empty item in flow sequence: ${s}`);
+    items.push(item);
+    if (j === s.length) return items;
+    i = j + 1;
+  }
+  return items;
+}
+
 function unquote(v, file) {
   if (!v.startsWith('"')) {
     // A plain scalar must survive a YAML parser as the string it looks like: no leading
@@ -537,7 +637,16 @@ for (const doc of DOCUMENTS_2025) {
         i = j;
       }
       assert.equal(data.edition, '2025');
-      assert.equal(data.volume, unit.volume);
+      // A glossary entry is one file per EDITION, so it records the SET of documents that publish
+      // it rather than one volume. Emitted document by document here, that set is the one document
+      // — the build widens it when it folds the four copies into one file (R33).
+      if (unit.kind === 'glossary') {
+        assert.deepEqual(data.sources, [unit.volume], `${relPath}: sources must name the document it was read from`);
+        assert.equal(data.volume, undefined, `${relPath}: a glossary file states sources, never a single volume`);
+      } else {
+        assert.equal(data.volume, unit.volume);
+        assert.equal(data.sources, undefined, `${relPath}: only the glossary is shared between documents`);
+      }
       assert.equal(data.jurisdiction, unit.state ? unit.state.toLowerCase() : 'aus');
       assert.ok(data.citation.startsWith(doc.citationPrefix), `${relPath}: ${data.citation}`);
       assert.ok(data.title !== undefined, `${relPath}: no title`);   // uniform across all kinds

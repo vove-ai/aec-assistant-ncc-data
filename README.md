@@ -44,7 +44,10 @@ correspondingly for NCC 2025).
 **Changes: yes — this is a derivative.** Relative to the ABCB XML publications: content is
 split to one file per clause/definition/page; markup is normalized to markdown; glossary
 cross-references are inlined as plain prose; figure references are rewritten to CDN URLs;
-citation metadata is added as YAML frontmatter. This repository is not affiliated with, and
+citation metadata is added as YAML frontmatter. The glossary, which each volume republishes in
+full, is emitted once per edition with its source documents named in `sources:`; where those
+documents publish a definition differently, every wording is kept, each under a heading naming
+the volumes it came from. This repository is not affiliated with, and
 its contents are not endorsed by, the ABCB. The NCC as published at
 [ncc.abcb.gov.au](https://ncc.abcb.gov.au/) remains the authoritative source — verify anything
 safety-critical there.

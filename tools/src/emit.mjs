@@ -36,9 +36,21 @@ import crypto from 'node:crypto';
  * unchanged by the rename.
  */
 export const FRONTMATTER_KEYS = [
-  'clause', 'term', 'title', 'citation', 'web_url', 'edition', 'volume', 'jurisdiction',
+  'clause', 'term', 'title', 'citation', 'web_url', 'edition', 'volume', 'sources', 'jurisdiction',
   'supersedes', 'building_classes_excluded', 'defined_terms',
 ];
+
+// `sources` REPLACES `volume`, on the glossary and only there; the two are mutually exclusive.
+// Every volume of an edition embeds the whole glossary, so a glossary entry is one file per
+// EDITION and lives in `glossary/` rather than under a volume (see `unitRelPath`). `volume:` there
+// would have to name one arbitrary document out of the four that publish the term — provenance
+// stated as if it were location, and wrong three times out of four. `sources:` states the set,
+// which is the true answer and the one an agent can act on: a term listed under a single volume is
+// defined only there.
+//
+// It sits where `volume` does, and is a single-line flow sequence on purpose: `grep -A6` on a term
+// must still reach `citation:` and `web_url:`, and a block sequence would push them down the
+// window on every glossary file in the corpus.
 
 /** Longest title/term slug allowed in a filename, cut on a word boundary. */
 const SLUG_CAP = 60;
@@ -142,22 +154,29 @@ function unsafePathSegment(value) {
 /**
  * @param {object} unit        a RawUnit
  * @param {{bodyMd: string, definedTerms: string[]}} normalized  normalizeUnit's output
- * @param {{citationPrefix: string, webUrl?: string|null, glossaryDir?: string}} opts
+ * @param {{citationPrefix: string, webUrl?: string|null, glossaryDir?: string,
+ *          sources?: string[]}} opts
+ *   `sources` names every document that publishes this glossary entry, in document order. It
+ *   defaults to `[unit.volume]` — the document the unit was read from, which is the whole truth
+ *   for a single-document run — and the build overrides it with the full set once it knows which
+ *   documents shared the file. Ignored for every other kind.
  * @returns {{relPath: string, content: string}} corpus-relative path and the whole file
  */
-export function emitUnit(unit, normalized, { citationPrefix, webUrl = null, glossaryDir = 'glossary' } = {}) {
+export function emitUnit(unit, normalized, { citationPrefix, webUrl = null, glossaryDir = 'glossary', sources = null } = {}) {
   if (!citationPrefix) throw identityError('no citationPrefix — a file must never ship uncitable', unit);
   const relPath = unitRelPath(unit, { glossaryDir });
 
   const isClause = unit.kind === 'clause';
+  const isGlossary = unit.kind === 'glossary';
   const rows = [];
-  if (unit.kind === 'glossary') rows.push(['term', unit.term]);
+  if (isGlossary) rows.push(['term', unit.term]);
   else if (isClause) rows.push(['clause', unit.id]);
   rows.push(['title', unit.title ?? '']);
   rows.push(['citation', citationFor(unit, citationPrefix)]);
   if (webUrl) rows.push(['web_url', webUrl]);
   rows.push(['edition', String(unit.edition)]);
-  rows.push(['volume', unit.volume]);
+  if (isGlossary) rows.push(['sources', sourcesFor(unit, sources)]);
+  else rows.push(['volume', unit.volume]);
   // Always explicit. AGENTS.md tells agents that a jurisdiction other than `aus` means a state
   // variation to be checked before relying on — which only works if `aus` is stated, not implied
   // by an absent key.
@@ -172,7 +191,7 @@ export function emitUnit(unit, normalized, { citationPrefix, webUrl = null, glos
   if (isClause && unit.buildingClasses) rows.push(['building_classes_excluded', unit.buildingClasses]);
 
   assertKeyOrder(rows.map(([k]) => k), unit);
-  const frontmatter = rows.map(([k, v]) => `${k}: ${yamlScalar(v)}`);
+  const frontmatter = rows.map(([k, v]) => `${k}: ${v instanceof FlowSeq ? v.render() : yamlScalar(v)}`);
 
   // Document order, not sorted: it records where each term is first used, and is deterministic.
   const terms = normalized?.definedTerms ?? [];
@@ -259,6 +278,21 @@ function citationFor(unit, prefix) {
   return `${prefix} ${unit.title}${state}`;
 }
 
+/**
+ * The documents that publish this glossary entry, in document order — never empty, never
+ * repeating. A repeat would mean the build folded one document's copy in twice, which is a
+ * counting bug in the fold rather than a fact about the Code, so it throws instead of shipping a
+ * `sources` list an agent would read as evidence.
+ */
+function sourcesFor(unit, sources) {
+  const list = (sources ?? [unit.volume]).map(s => String(s ?? '').trim()).filter(Boolean);
+  if (!list.length) throw identityError('glossary unit has no source document to record in sources:', unit);
+  if (new Set(list).size !== list.length) {
+    throw identityError(`sources ${JSON.stringify(list)} names a document more than once`, unit);
+  }
+  return new FlowSeq(list);
+}
+
 function headingFor(unit) {
   if (unit.kind === 'glossary') return String(unit.term ?? '').trim();
   if (unit.kind === 'clause') return [unit.id, unit.title].map(x => String(x ?? '').trim()).filter(Boolean).join(' — ');
@@ -273,6 +307,29 @@ function headingFor(unit) {
 const YAML_LEADING_INDICATOR = /^[-?:,[\]{}#&*!|>'"%@`]/;
 const YAML_NUMBER = /^[-+]?(\.\d+|\d+(\.\d*)?([eE][-+]?\d+)?|0x[0-9a-fA-F]+|0o[0-7]+|0b[01]+)$/;
 const YAML_WORD = /^([yYnN]|[Yy]es|YES|[Nn]o|NO|[Tt]rue|TRUE|[Ff]alse|FALSE|[Oo]n|ON|[Oo]ff|OFF|[Nn]ull|NULL|~|\.inf|-\.inf|\.nan)$/;
+
+/**
+ * A one-line YAML flow sequence, `[a, b, c]`.
+ *
+ * A marker type rather than a pre-rendered string so the frontmatter renderer can tell a sequence
+ * from a scalar: handing it `"[volume-one, volume-two]"` as text would send it through
+ * `yamlScalar`, whose leading-indicator rule quotes anything starting with `[` — emitting the list
+ * as a quoted STRING that every YAML reader would then parse as one.
+ */
+class FlowSeq {
+  constructor(items) { this.items = items; }
+
+  render() { return `[${this.items.map(yamlFlowScalar).join(', ')}]`; }
+}
+
+// Inside flow context YAML adds `,`, `[`, `]`, `{` and `}` to the characters that end a plain
+// scalar, so a value containing one must be quoted even though it is fine in block context.
+const YAML_FLOW_INDICATOR = /[,[\]{}]/;
+
+function yamlFlowScalar(value) {
+  const s = String(value ?? '');
+  return YAML_FLOW_INDICATOR.test(s) && !needsQuote(s) ? `"${s.replace(/\\/g, '\\\\').replace(/"/g, '\\"')}"` : yamlScalar(s);
+}
 
 function needsQuote(s) {
   return s === ''

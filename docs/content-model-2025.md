@@ -135,6 +135,44 @@ computed from a title. It can be *checked* against one: the slug's tokens are al
 the title's tokens, which is enough to disambiguate Housing Provisions' colliding section numbers
 (`2-structure` vs `2-referenced-documents`).
 
+## The glossary across volumes (measured 2026-08-14, all five documents)
+
+Volumes One–Three and the Housing Provisions each embed the **whole** glossary — 556 `glossentry`
+/ `glossentry-variation` units per document, on **555** distinct corpus paths, the odd one out
+being "Appropriate authority", which the Code genuinely defines twice (R23). Livable Housing
+Design has no glossary at all.
+
+So one file under `{edition}/glossary/` is claimed by four documents, and the question the design
+doc left open was whether their copies are identical. **They are not — not one of the 555 is
+byte-identical**, and that is a property of this pipeline rather than of the Code: `citation:`
+carries the volume prefix and `web_url:` the volume path, so provenance differs by construction.
+The question only has an answer on the normalized BODY. On that:
+
+| class | paths | what differs |
+|---|---|---|
+| identical | **545** | nothing |
+| identical once our own figure CDN key is neutralised | **9** | `…/2025/volume1/x.svg` against `…/2025/volume2/x.svg` — the same figure, addressed under the emitting document's `cdnKey`. Each package ships its own copy of the image, so this is our artefact, not a difference the ABCB publishes. The nine: `alpine-area`, `cell-type-silo-sa`, `climate-zone`, `defined-flood-level-dfl`, `flight`, `floor-area`, `foundation`, `sanitary-compartment`, `separating-wall`. |
+| genuinely different text | **1** | `hours-of-operation` |
+
+**The one real divergence is an ABCB typo.** Volume One and the Housing Provisions read "The number
+of hours when the occupancy of the building **is at least 20%** of the peak occupancy"; Volumes Two
+and Three read "**is greater thanat least 20%**" — an unresolved edit, the words "greater than"
+left butted against the replacement. Neither wording can be dropped: an agent citing the definition
+to a Volume Two matter must see what Volume Two publishes.
+
+**Consequence for the build (R33).** `foldGlossary` in `build.mjs` emits one file per path:
+
+- one body class → the FIRST document's copy in `DOCUMENTS_2025` order, cited and linked to that
+  document, with `sources: [volume-one, volume-two, volume-three, housing-provisions]` in place of
+  `volume:`;
+- more than one → one file carrying every variant under a `## As published in …` heading naming
+  the documents behind it, so a term grep shows the discrepancy instead of one arbitrary volume's
+  wording.
+
+Verified before pointing the nine at Volume One's CDN key: all 10 figure files those entries embed
+exist in `ncc-2025-volume-one-v1.2/images/` (and, as it happens, in all four packages).
+`sync-figures` re-checks it over the whole corpus on every run — 0 unresolved local sources.
+
 ## ⊕ Identity and naming traps (measured 2026-08-13)
 
 Paid-for lessons from a prior implementation against this same corpus, found and fixed *after*

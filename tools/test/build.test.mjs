@@ -20,6 +20,9 @@ import {
   nullWebUrlException, parityCheck, parseArgs, planReconcile, report, resolveUniqueness,
   warningCategory,
 } from '../src/build.mjs';
+import { DOCUMENTS_2025, readDocument2025 } from '../src/read-2025.mjs';
+import { normalizeUnit, figureUrlPrefix } from '../src/normalize.mjs';
+import { emitUnit } from '../src/emit.mjs';
 
 /* ============================================================ *
  * 1. Arguments                                                  *
@@ -85,41 +88,47 @@ test('no --sections means everything; front matter (empty section num) is always
 // `volume` defaults to the document key because that is what the real pipeline does — a glossary
 // unit is stamped with the volume it was read from. It is overridable so a test can isolate the
 // ordering question from the provenance question, which are different failures.
+const LABELS = new Map([['volume-one', 'Volume One'], ['volume-two', 'Volume Two'],
+  ['volume-three', 'Volume Three'], ['housing-provisions', 'Housing Provisions']]);
+const CDN = 'https://cdn.aecassistant.com.au/images/ncc/2025';
+const CDN_KEYS = new Map([['volume-one', 'volume1'], ['volume-two', 'volume2'],
+  ['volume-three', 'volume3'], ['housing-provisions', 'housing']]);
+
 const record = (docKey, term, body, terms = [], volume = docKey) => ({
   docKey,
+  // Both are carried for the glossary fold alone: it names the documents behind a variant in
+  // prose, and it has to recognise this document's own figure CDN prefix.
+  docLabel: LABELS.get(docKey) ?? docKey,
+  figurePrefix: `${CDN}/${CDN_KEYS.get(docKey) ?? docKey}`,
   unit: { edition: '2025', volume, kind: 'glossary', term, title: term, state: null },
   normalized: { bodyMd: body, definedTerms: terms, figures: [], warnings: [], tableRefs: [] },
-  emitOpts: { citationPrefix: 'NCC 2025 V1', webUrl: 'https://ncc.abcb.gov.au/x' },
+  // Per-document, as the real pipeline's are: the fold has to pick ONE, and a fixture that held
+  // them constant could not show which.
+  emitOpts: { citationPrefix: `NCC 2025 ${docKey}`, webUrl: `https://ncc.abcb.gov.au/${docKey}` },
 });
 
-// The records the build feeds in already carry their emitted path and bytes; only a merge
-// re-emits. Mirroring that here keeps the fixture honest about the real call shape — including
-// the `volume:` line, which is what makes two volumes' copies of one glossary term differ.
+// The records the build feeds in already carry their emitted path and bytes; only a merge or the
+// glossary fold re-emits. Mirroring that here keeps the fixture honest about the real call shape.
 function emitted(recs) {
   return recs.map(r => ({
     ...r,
     relPath: `2025/glossary/${r.unit.term.toLowerCase().replace(/[^a-z0-9]+/g, '-')}.md`,
-    content: `---\nterm: ${r.unit.term}\nvolume: ${r.unit.volume}\n---\n\n# ${r.unit.term}\n\n${r.normalized.bodyMd}\n`,
+    content: `---\nterm: ${r.unit.term}\nsources: [${r.docKey}]\n---\n\n# ${r.unit.term}\n\n${r.normalized.bodyMd}\n`,
   }));
 }
 
-test('branch 1 — the same path with byte-identical content is written once, with no error', () => {
-  // The 2025 glossary is embedded in every volume, so one path is claimed by up to four
-  // documents. Treating that as a collision would fail every correct full build.
-  //
-  // MEASURED: with today's per-volume provenance NONE of the 555 shared glossary paths is
-  // actually byte-identical, so this branch does not currently fire on real 2025 data — the
-  // fixture holds `volume` constant to exercise it. It becomes the live path the moment the
-  // glossary-dedupe decision gives a deduplicated glossary one provenance.
-  const out = resolveUniqueness(emitted([
-    record('volume-one', 'ABCB', 'Australian Building Codes Board.', [], 'volume-one'),
-    record('volume-two', 'ABCB', 'Australian Building Codes Board.', [], 'volume-one'),
-    record('volume-three', 'ABCB', 'Australian Building Codes Board.', [], 'volume-one'),
-  ]));
+/** The `sources:` list of a written file, as an array. */
+const sourcesOf = md => /^sources: \[(.*)\]$/m.exec(md)?.[1].split(', ');
+
+test('branch 1 — a path only one unit claims is written exactly as it was emitted', () => {
+  // The overwhelming majority of the corpus: one unit, one file, no re-emit. Asserted on a page
+  // rather than a glossary entry because the glossary always goes through the fold (R33).
+  const recs = emitted([record('volume-one', 'Overview', 'Body.')]);
+  recs[0].unit = { edition: '2025', volume: 'volume-one', kind: 'page', title: 'Overview', state: null };
+  const out = resolveUniqueness(recs);
   assert.equal(out.write.size, 1);
-  assert.equal(out.duplicates, 2);
-  assert.deepEqual(out.merges, []);
-  assert.ok(out.write.get('2025/glossary/abcb.md').includes('Australian Building Codes Board.'));
+  assert.equal(out.write.get(recs[0].relPath), recs[0].content, 'the emitter\'s bytes, untouched');
+  assert.deepEqual(out.glossary, []);
 });
 
 test('branch 2 — two senses in ONE document merge into one file, in document order (R23)', () => {
@@ -146,21 +155,24 @@ test('branch 2 stays stable when the same in-document merge repeats in another d
   // The ordering trap: merge volume-one first and you are then comparing volume-two's FIRST sense
   // against an already-merged file. A naive fold reads that as a cross-document conflict and
   // fails a build that is entirely correct. Grouping per document before comparing across is
-  // what makes the answer independent of the order documents are read in.
-  // Provenance is held constant so this test measures ONE thing: that per-document merging
-  // happens before cross-document comparison. The provenance difference is a separate, measured
-  // fact with its own test below.
-  const recs = ['volume-one', 'volume-two'].flatMap(v => [
-    record(v, 'Appropriate authority', 'Sense one.', [], 'volume-one'),
-    record(v, 'Appropriate authority', 'Sense two.', [], 'volume-one'),
+  // what makes the answer independent of the order the records ARRIVE in.
+  const grouped = ['volume-one', 'volume-two'].flatMap(v => [
+    record(v, 'Appropriate authority', 'Sense one.'),
+    record(v, 'Appropriate authority', 'Sense two.'),
   ]);
-  const out = resolveUniqueness(emitted(recs));
+  const out = resolveUniqueness(emitted(grouped));
   assert.equal(out.write.size, 1);
   assert.equal(out.merges.length, 1, 'reported once, not once per document');
-  assert.equal(out.duplicates, 1, 'the second document produced the same merged bytes');
   const md = out.write.get('2025/glossary/appropriate-authority.md');
   assert.ok(md.includes('Sense one.') && md.includes('Sense two.'));
-  assert.equal(resolveUniqueness(emitted(recs.slice(2).concat(recs.slice(0, 2)))).write.get('2025/glossary/appropriate-authority.md'), md);
+  assert.deepEqual(sourcesOf(md), ['volume-one', 'volume-two']);
+  assert.equal((md.match(/^## /gm) ?? []).length, 2, 'two senses, not two senses per document');
+
+  // Interleaved — sense 1 of both documents, then sense 2 of both. Same answer: the grouping is
+  // by document, not by arrival. (Document ORDER does matter, and deliberately so: it decides
+  // which document the file is cited to. That is the next test.)
+  const interleaved = [grouped[0], grouped[2], grouped[1], grouped[3]];
+  assert.equal(resolveUniqueness(emitted(interleaved)).write.get('2025/glossary/appropriate-authority.md'), md);
 });
 
 test('branch 2 is GLOSSARY-ONLY — a same-document collision between two pages throws (⊕ trap 1)', () => {
@@ -210,38 +222,140 @@ test('a same-document collision mixing a glossary entry with another kind throws
   );
 });
 
-test('branch 3 — the same path with different content from DIFFERENT documents throws', () => {
-  // Measured: "Hours of operation" reads differently in Volumes Two/Three (an ABCB typo) than in
-  // Volume One. Merging it would fabricate a definition the NCC does not publish; picking one
-  // would silently drop the other. It is a human ruling, so the build stops and says so.
-  let err;
-  try {
-    resolveUniqueness(emitted([
-      record('volume-one', 'Hours of operation', 'the period is at least 20% of the peak occupancy'),
-      record('volume-two', 'Hours of operation', 'the period is greater thanat least 20% of the peak occupancy'),
-    ]));
-  } catch (e) { err = e; }
-  assert.ok(err, 'a cross-document content conflict must throw');
-  assert.match(err.message, /2025\/glossary\/hours-of-operation\.md/);
-  assert.match(err.message, /volume-one/);
-  assert.match(err.message, /volume-two/);
-  assert.match(err.message, /greater thanat least/, 'the report shows the differing text');
+/* -- branch 4: the glossary fold (R33) -- */
+
+test('branch 4 — every volume\'s copy of one term folds into ONE file, cited to the first', () => {
+  // The glossary is embedded in every volume, so four documents claim one path and none of the
+  // four copies is byte-identical to another: `citation:`, `web_url:` and `sources:` are
+  // per-document by construction. The body is what decides, and when it agrees the file is the
+  // FIRST document's copy — a deterministic choice, not an arbitrary one.
+  const out = resolveUniqueness(emitted(['volume-one', 'volume-two', 'volume-three', 'housing-provisions']
+    .map(v => record(v, 'ABCB', 'Australian Building Codes Board.'))));
+  assert.equal(out.write.size, 1);
+  const md = out.write.get('2025/glossary/abcb.md');
+  assert.deepEqual(sourcesOf(md), ['volume-one', 'volume-two', 'volume-three', 'housing-provisions']);
+  assert.match(md, /citation: "NCC 2025 volume-one Glossary: ABCB"/, 'cited to the first document, deterministically');
+  assert.match(md, /web_url: https:\/\/ncc\.abcb\.gov\.au\/volume-one/);
+  assert.ok(md.includes('Australian Building Codes Board.'));
+  assert.ok(!md.includes('## '), 'one body, so no variant headings');
+  assert.deepEqual(out.glossary, [{
+    relPath: '2025/glossary/abcb.md',
+    sources: ['volume-one', 'volume-two', 'volume-three', 'housing-provisions'],
+    variants: 1,
+    figureNormalised: false,
+    documents: [['volume-one', 'volume-two', 'volume-three', 'housing-provisions']],
+  }]);
+});
+
+test('branch 4 — a figure URL differing only in OUR per-volume CDN key is not a difference', () => {
+  // Each volume ships its own copy of the glossary figures, so this pipeline addresses the same
+  // figure as …/volume1/x.svg from Volume One and …/volume2/x.svg from Volume Two. Nine 2025
+  // entries differ across the four documents in nothing else. Reading that as text the Code
+  // publishes differently would put nine spurious "as published in …" merges in the corpus.
+  const body = v => `![Figure 1: Alpine areas](${CDN}/${v}/image-1-alpine-areas.svg)`;
+  const out = resolveUniqueness(emitted([
+    record('volume-one', 'Alpine area', body('volume1')),
+    record('volume-two', 'Alpine area', body('volume2')),
+    record('housing-provisions', 'Alpine area', body('housing')),
+  ]));
+  const md = out.write.get('2025/glossary/alpine-area.md');
+  assert.equal(out.glossary[0].variants, 1);
+  assert.equal(out.glossary[0].figureNormalised, true, 'reported, because it is our artefact and not the source\'s');
+  assert.ok(!md.includes('## '), 'no variant headings');
+  // The URL that ships is the FIRST document's, matching citation: and web_url:. It is the only
+  // one that can be right: sync-figures uploads each document's images under its own CDN key.
+  assert.ok(md.includes(`${CDN}/volume1/image-1-alpine-areas.svg`), md);
+  assert.ok(!md.includes('volume2') && !md.includes('housing/'), md);
+});
+
+test('branch 4 — a figure with a DIFFERENT filename is still a real difference', () => {
+  // The neutralisation removes the emitting document's own prefix and nothing else, so it cannot
+  // hide two documents citing two different figures.
+  const out = resolveUniqueness(emitted([
+    record('volume-one', 'Foundation', `![Figure 5](${CDN}/volume1/image-5-foundation.svg)`),
+    record('volume-two', 'Foundation', `![Figure 5](${CDN}/volume2/image-9-something-else.svg)`),
+  ]));
+  const md = out.write.get('2025/glossary/foundation.md');
+  assert.equal(out.glossary[0].variants, 2);
+  assert.ok(md.includes('image-5-foundation.svg') && md.includes('image-9-something-else.svg'), md);
+});
+
+test('branch 4 — text the documents genuinely publish differently ships as BOTH, labelled', () => {
+  // MEASURED across all five 2025 documents: exactly one of the 555 shared paths, "Hours of
+  // operation", where Volumes Two and Three carry an ABCB typo the other documents do not.
+  // Emitting one volume's wording drops the other's; one file per variant hides the discrepancy
+  // behind a filename nobody globs for. An agent grepping the term must see that the Code
+  // disagrees with itself.
+  const out = resolveUniqueness(emitted([
+    record('volume-one', 'Hours of operation', 'the period is at least 20% of the peak occupancy'),
+    record('volume-two', 'Hours of operation', 'the period is greater thanat least 20% of the peak occupancy'),
+    record('volume-three', 'Hours of operation', 'the period is greater thanat least 20% of the peak occupancy'),
+    record('housing-provisions', 'Hours of operation', 'the period is at least 20% of the peak occupancy'),
+  ]));
+  assert.equal(out.write.size, 1);
+  const md = out.write.get('2025/glossary/hours-of-operation.md');
+  assert.equal((md.match(/^---$/gm) ?? []).length, 2, 'exactly one frontmatter block');
+  assert.equal((md.match(/^# /gm) ?? []).length, 1, 'exactly one H1');
+  assert.match(md, /^## As published in Volume One and Housing Provisions$/m);
+  assert.match(md, /^## As published in Volume Two and Volume Three$/m);
+  assert.ok(md.includes('is at least 20%') && md.includes('greater thanat least 20%'), 'neither wording is dropped');
+  assert.ok(md.indexOf('## As published in Volume One') < md.indexOf('## As published in Volume Two'), 'document order');
+  assert.deepEqual(sourcesOf(md), ['volume-one', 'volume-two', 'volume-three', 'housing-provisions']);
+  assert.deepEqual(out.glossary[0].documents,
+    [['volume-one', 'housing-provisions'], ['volume-two', 'volume-three']]);
+  assert.equal(out.glossary[0].variants, 2);
+});
+
+test('branch 4 — a glossary record with no figurePrefix throws rather than mis-classifying', () => {
+  // Without the prefix the fold cannot tell "the same figure under this volume's CDN key" from "a
+  // different figure", and would report every figure-bearing entry as a published difference.
+  const recs = emitted([
+    record('volume-one', 'Alpine area', `![Figure 1](${CDN}/volume1/x.svg)`),
+    record('volume-two', 'Alpine area', `![Figure 1](${CDN}/volume2/x.svg)`),
+  ]);
+  delete recs[1].figurePrefix;
+  assert.throws(() => resolveUniqueness(recs), /carries no figurePrefix/);
+});
+
+test('the glossary fold is scoped to the glossary — any other cross-document conflict still throws', () => {
+  // No non-glossary kind can reach this today: `unitRelPath` files every other unit under its own
+  // volume directory, so two documents cannot claim one path. The guard is for the day a naming
+  // rule changes and they can — folding a clause would fabricate text the Code does not publish.
+  const page = (docKey, body) => ({
+    docKey,
+    docLabel: LABELS.get(docKey),
+    figurePrefix: `${CDN}/${CDN_KEYS.get(docKey)}`,
+    unit: { edition: '2025', volume: docKey, kind: 'page', title: 'Introduction', state: null },
+    normalized: { bodyMd: body, definedTerms: [], figures: [], warnings: [], tableRefs: [] },
+    emitOpts: { citationPrefix: `NCC 2025 ${docKey}`, webUrl: 'https://ncc.abcb.gov.au/x' },
+    relPath: '2025/shared/page-introduction.md',
+    content: `---\ntitle: Introduction\nvolume: ${docKey}\n---\n\n# Introduction\n\n${body}\n`,
+  });
+  assert.throws(() => resolveUniqueness([page('volume-one', 'One.'), page('volume-two', 'Two.')]),
+    /claimed by more than one unit with DIFFERENT content/);
 });
 
 test('a conflict that is only provenance is reported as its own class, not mixed with real text differences', () => {
-  // MEASURED over all five 2025 documents: every one of the 555 shared glossary paths differs
-  // across volumes, because `volume:`, the `citation:` prefix and `web_url:` are volume-specific.
-  // 545 differ ONLY there; 10 differ in body text (9 figure URLs embed the volume, plus one ABCB
-  // typo in "Hours of operation"). A single flat list of 555 would bury the ten that need a
-  // reading of the Code, so the report splits them.
+  // The two classes need different rulings — one provenance decision taken once, versus a reading
+  // of the published text per path — so a flat list would bury the ones that matter. Exercised on
+  // pages because the glossary, which was the measured instance, is now folded by rule.
+  const page = (docKey, title, body) => ({
+    docKey,
+    docLabel: LABELS.get(docKey),
+    unit: { edition: '2025', volume: docKey, kind: 'page', title, state: null },
+    normalized: { bodyMd: body, definedTerms: [], figures: [], warnings: [], tableRefs: [] },
+    emitOpts: { citationPrefix: `NCC 2025 ${docKey}`, webUrl: 'https://ncc.abcb.gov.au/x' },
+    relPath: `2025/shared/page-${title.toLowerCase()}.md`,
+    content: `---\ntitle: ${title}\nvolume: ${docKey}\n---\n\n# ${title}\n\n${body}\n`,
+  });
   let err;
   try {
-    resolveUniqueness(emitted([
-      record('volume-one', 'ABCB', 'Australian Building Codes Board.'),
-      record('volume-two', 'ABCB', 'Australian Building Codes Board.'),
-      record('volume-one', 'Hours of operation', 'at least 20% of the peak occupancy'),
-      record('volume-two', 'Hours of operation', 'greater thanat least 20% of the peak occupancy'),
-    ]));
+    resolveUniqueness([
+      page('volume-one', 'abcb', 'Australian Building Codes Board.'),
+      page('volume-two', 'abcb', 'Australian Building Codes Board.'),
+      page('volume-one', 'hours', 'at least 20% of the peak occupancy'),
+      page('volume-two', 'hours', 'greater thanat least 20% of the peak occupancy'),
+    ]);
   } catch (e) { err = e; }
   assert.ok(err);
   const [a, b] = [err.message.indexOf('[A]'), err.message.indexOf('[B]')];
@@ -250,19 +364,27 @@ test('a conflict that is only provenance is reported as its own class, not mixed
   assert.match(err.message, /\[B\] 1 path\(s\) differ in BODY TEXT/);
   // The substantive one carries its evidence; the provenance one is named but not diffed.
   assert.ok(err.message.slice(b).includes('greater thanat least'), 'body conflicts show the differing text');
-  assert.ok(err.message.slice(a, b).includes('abcb.md'), 'provenance conflicts are named');
+  assert.ok(err.message.slice(a, b).includes('page-abcb.md'), 'provenance conflicts are named');
 });
 
 test('every conflict is reported, not just the first — one run, one ruling', () => {
+  const page = (docKey, title, body) => ({
+    docKey,
+    unit: { edition: '2025', volume: docKey, kind: 'page', title, state: null },
+    normalized: { bodyMd: body, definedTerms: [], figures: [], warnings: [], tableRefs: [] },
+    emitOpts: { citationPrefix: 'NCC 2025 V1', webUrl: 'https://ncc.abcb.gov.au/x' },
+    relPath: `2025/shared/${title}.md`,
+    content: `---\ntitle: ${title}\nvolume: ${docKey}\n---\n\n${body}\n`,
+  });
   let err;
   try {
-    resolveUniqueness(emitted([
-      record('volume-one', 'A', 'x'), record('volume-two', 'A', 'y'),
-      record('volume-one', 'B', 'x'), record('volume-two', 'B', 'y'),
-    ]));
+    resolveUniqueness([
+      page('volume-one', 'a', 'x'), page('volume-two', 'a', 'y'),
+      page('volume-one', 'b', 'x'), page('volume-two', 'b', 'y'),
+    ]);
   } catch (e) { err = e; }
-  assert.match(err.message, /2025\/glossary\/a\.md/);
-  assert.match(err.message, /2025\/glossary\/b\.md/);
+  assert.match(err.message, /2025\/shared\/a\.md/);
+  assert.match(err.message, /2025\/shared\/b\.md/);
   assert.match(err.message, /2 path/);
 });
 
@@ -274,6 +396,72 @@ test('the write map is ordered by path, so writing is deterministic', () => {
 /* ============================================================ *
  * 4. What a run deletes before it rewrites                      *
  * ============================================================ */
+
+/* -- the fold against the real five documents -- */
+
+test('branch 4 — the fold classifies the REAL 2025 glossary exactly as it was measured',
+  { skip: !fs.existsSync('.cache/extracted/ncc-2025-volume-one-v1.2/contents.xml') }, () => {
+    // The fixtures above prove the RULE; this proves the rule still meets the DATA. Every number
+    // is docs/content-model-2025.md § The glossary across volumes, pinned here so a future change
+    // to normalize.mjs that made two volumes' copies of an entry diverge — or that made the nine
+    // figure-key entries stop collapsing — goes red with the count rather than quietly reshaping
+    // the corpus. It skips where `.cache/` is absent, as every source-reading test here does.
+    const records = [];
+    for (const doc of DOCUMENTS_2025) {
+      const units = readDocument2025(fs.readFileSync(`.cache/extracted/${doc.pkg}/contents.xml`, 'utf8'), doc);
+      for (const unit of units.filter(u => u.kind === 'glossary')) {
+        const normalized = normalizeUnit(unit, { year: '2025', cdnKey: doc.cdnKey });
+        const emitOpts = { citationPrefix: doc.citationPrefix, webUrl: `https://ncc.abcb.gov.au/${doc.key}` };
+        records.push({
+          ...emitUnit(unit, normalized, emitOpts),
+          docKey: doc.key,
+          docLabel: doc.volumeLabel,
+          figurePrefix: figureUrlPrefix({ year: '2025', cdnKey: doc.cdnKey }),
+          unit,
+          normalized,
+          emitOpts,
+        });
+      }
+    }
+    assert.equal(records.length, 2224, '556 entries in each of the four documents that carry a glossary');
+
+    const out = resolveUniqueness(records);
+    const g = out.glossary;
+    assert.equal(g.length, 555, 'one path per term; "Appropriate authority" is two senses on one path');
+    assert.equal(out.write.size, 555);
+    assert.ok(g.every(x => x.sources.length === 4), 'every term is published by all four documents');
+    assert.equal(g.filter(x => x.variants === 1 && !x.figureNormalised).length, 545, 'body-identical');
+    assert.deepEqual(g.filter(x => x.figureNormalised).map(x => x.relPath), [
+      '2025/glossary/alpine-area.md', '2025/glossary/cell-type-silo-sa.md', '2025/glossary/climate-zone.md',
+      '2025/glossary/defined-flood-level-dfl.md', '2025/glossary/flight.md', '2025/glossary/floor-area.md',
+      '2025/glossary/foundation.md', '2025/glossary/sanitary-compartment.md', '2025/glossary/separating-wall.md',
+    ], 'differ only in OUR per-volume figure CDN key');
+
+    // The single genuine divergence: an unresolved ABCB edit in Volumes Two and Three.
+    const differ = g.filter(x => x.variants > 1);
+    assert.equal(differ.length, 1);
+    assert.equal(differ[0].relPath, '2025/glossary/hours-of-operation.md');
+    assert.deepEqual(differ[0].documents, [['volume-one', 'housing-provisions'], ['volume-two', 'volume-three']]);
+    const md = out.write.get('2025/glossary/hours-of-operation.md');
+    assert.ok(md.includes('is at least 20% of the peak occupancy'), md);
+    assert.ok(md.includes('is greater thanat least 20% of the peak occupancy'), md);
+    assert.deepEqual(out.merges.map(m => m.relPath), ['2025/glossary/appropriate-authority.md']);
+
+    // Every figure the folded corpus publishes must exist in the images/ directory of the document
+    // it is now attributed to — the fold points nine entries at Volume One's CDN key, and a key
+    // with no local file behind it is a figure that can never be uploaded.
+    const listing = new Set(fs.readdirSync('.cache/extracted/ncc-2025-volume-one-v1.2/images'));
+    const urls = new Set();
+    for (const content of out.write.values()) {
+      for (const m of content.matchAll(/https:\/\/cdn\.aecassistant\.com\.au\/images\/ncc\/2025\/([^/]+)\/([^)\s]+)/g)) urls.add(`${m[1]}/${m[2]}`);
+    }
+    assert.ok(urls.size >= 10, `only ${urls.size} figure URLs in the folded glossary`);
+    for (const u of [...urls].sort()) {
+      const [key, file] = u.split('/');
+      assert.equal(key, 'volume1', `${u}: the folded glossary is attributed to Volume One`);
+      assert.ok(listing.has(decodeURIComponent(file)), `${u}: no such file in ncc-2025-volume-one-v1.2/images/`);
+    }
+  });
 
 const RECONCILE = {
   edition: '2025',

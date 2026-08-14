@@ -21,6 +21,20 @@
 
 const DEFAULT_CDN_BASE = 'https://cdn.aecassistant.com.au/images/ncc';
 
+/**
+ * The `{cdnBase}/{year}/{cdnKey}` prefix every figure URL of ONE document is built on.
+ *
+ * Exported because a second caller has to RECOGNISE that prefix rather than construct one of its
+ * own. The glossary is embedded once per volume, so the same entry emits `…/2025/volume1/x.svg`
+ * from Volume One and `…/2025/volume2/x.svg` from Volume Two — an artefact of our own per-document
+ * `cdnKey`, not a difference the NCC publishes. build.mjs neutralises exactly this prefix before
+ * asking whether two documents' copies of a glossary entry say the same thing, and a second copy
+ * of the format string is how the two drift apart and the comparison silently stops matching.
+ */
+export function figureUrlPrefix({ cdnBase = DEFAULT_CDN_BASE, year, cdnKey } = {}) {
+  return `${cdnBase}/${year}/${cdnKey}`;
+}
+
 /* ---------------------------------------------------------------------------
  * Allowlists. Every entry is justified; counts are across all five 2025
  * documents unless noted. Nothing is added without inspecting what it holds.
@@ -888,7 +902,7 @@ function figureUrl(src, st) {
   // encodeURIComponent leaves ( and ) alone, and 4 corpus filenames contain them — unescaped they
   // close the markdown destination early. One filename contains spaces.
   const file = encodeURIComponent(src).replace(/\(/g, '%28').replace(/\)/g, '%29');
-  return `${st.cdnBase}/${st.year}/${st.cdnKey}/${file}`;
+  return `${figureUrlPrefix(st)}/${file}`;
 }
 
 /* -- inline ----------------------------------------------------------------- */

@@ -124,8 +124,10 @@ corpus/2025/volume-one/page-introduction-to-the-ncc.md              # non-clause
 - Clause-ID-first means `glob corpus/2025/**/a5g7-*` is exact.
 - State variations keep the state suffix directly after the clause ID.
 - The glossary is emitted **once per edition** under `glossary/`, not inside a volume.
-  (The 2025 source embeds an identical 537-entry glossary in each volume; the pilot
-  asserts byte-identity across volumes before deduplicating — see Open items.)
+  (The 2025 source embeds the same glossary in Volumes One–Three and the Housing
+  Provisions — 556 entries on 555 paths, one term carrying two senses. What the four
+  copies agree on, and what they do not, is measured in `content-model-2025.md`
+  § The glossary across volumes; the fold is R33.)
 - Filenames must be unique within their directory; the build fails on collision
   rather than silently overwriting.
 
@@ -160,7 +162,8 @@ variable-length keys (`defined_terms`) come last.
   whichever retrieval path produced it.
 - `jurisdiction` is `aus` or a state code (`vic`, `nsw`, …) for variations.
 - Non-clause pages omit `clause`/`supersedes`; glossary entries use `term:` in place
-  of `clause:`.
+  of `clause:`, and `sources:` — a one-line list of the documents that publish the
+  entry — in place of `volume:`, because one glossary file speaks for all of them.
 - `grep -A` on a clause ID surfaces `citation:` and `web_url:` without a second
   lookup — a hit is self-citing.
 
@@ -286,9 +289,12 @@ the gate.
 3. **2022 amendment state** — the ABCB read-me doesn't state it; determine from
    content (e.g. presence of known Amdt 2 provisions) and record in README +
    `corpus/INDEX.md`.
-4. **2025 glossary byte-identity across volumes** — assert before deduplicating to
-   `glossary/`; if entries differ per volume, fall back to union with provenance
-   noted per entry.
+4. **2025 glossary byte-identity across volumes** — RESOLVED, and the premise was
+   wrong: **zero** of the 555 shared paths are byte-identical, because `citation:`,
+   `web_url:` and the provenance key are per-volume by construction. The question only
+   ever had an answer on the BODY, and on that the four documents agree on 545 outright,
+   on 9 more once this pipeline's own per-volume figure CDN key is neutralised, and
+   disagree on exactly 1. See `content-model-2025.md` § The glossary across volumes.
 5. **2022 glossary source location** — locate where the DITA set carries glossary
    definitions (dedicated files vs. references only).
 
