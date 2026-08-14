@@ -28,10 +28,16 @@
 // result, so nothing is lost by keeping them out of the corpus.
 import crypto from 'node:crypto';
 
-/** Frontmatter key order. Fixed, and the only place it is written down. */
+/**
+ * Frontmatter key order. Fixed, and the only place it is written down.
+ *
+ * `building_classes_excluded` holds the position `building_classes` used to (after `supersedes`,
+ * immediately before the only variable-length key), so the `grep -A6` window promised above is
+ * unchanged by the rename.
+ */
 export const FRONTMATTER_KEYS = [
   'clause', 'term', 'title', 'citation', 'web_url', 'edition', 'volume', 'jurisdiction',
-  'supersedes', 'building_classes', 'defined_terms',
+  'supersedes', 'building_classes_excluded', 'defined_terms',
 ];
 
 /** Longest title/term slug allowed in a filename, cut on a word boundary. */
@@ -157,7 +163,13 @@ export function emitUnit(unit, normalized, { citationPrefix, webUrl = null, glos
   // by an absent key.
   rows.push(['jurisdiction', unit.state ? String(unit.state).toLowerCase() : 'aus']);
   if (isClause && unit.supersedes) rows.push(['supersedes', unit.supersedes]);
-  if (isClause && unit.buildingClasses) rows.push(['building_classes', unit.buildingClasses]);
+  // The source lists the classes a clause does NOT apply to, and the key says so. Measured on the
+  // corpus's own text: A1G1 "Scope of NCC Volume One" carries `Class 1a, Class 10c` while its body
+  // states Volume One covers Class 2-9 (plus 1b/10a/10b for access) — and A6G3 "Class 2 buildings"
+  // lists every class except Class 2. The value is transcribed verbatim; only the name asserts
+  // anything, which is why it must assert the right thing. (Owner ruling, Task 11 gate: rename,
+  // do not invert — inverting would put a derived applicability claim where a transcription is.)
+  if (isClause && unit.buildingClasses) rows.push(['building_classes_excluded', unit.buildingClasses]);
 
   assertKeyOrder(rows.map(([k]) => k), unit);
   const frontmatter = rows.map(([k, v]) => `${k}: ${yamlScalar(v)}`);

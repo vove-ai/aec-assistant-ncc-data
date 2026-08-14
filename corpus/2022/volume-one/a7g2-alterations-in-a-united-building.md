@@ -7,7 +7,7 @@ edition: "2022"
 volume: volume-one
 jurisdiction: aus
 supersedes: "2019: A7.1"
-building_classes: Class 1a, Class 1b
+building_classes_excluded: Class 1a, Class 1b
 defined_terms:
   - alterations
 ---

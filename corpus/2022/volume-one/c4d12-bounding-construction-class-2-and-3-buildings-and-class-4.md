@@ -7,7 +7,7 @@ edition: "2022"
 volume: volume-one
 jurisdiction: aus
 supersedes: "2019: C3.11"
-building_classes: Class 1a, Class 1b, Class 5, Class 6, Class 7a, Class 7b, Class 8, Class 9a, Class 9b, Class 9c, Class 10a, Class 10c, Class 10b
+building_classes_excluded: Class 1a, Class 1b, Class 5, Class 6, Class 7a, Class 7b, Class 8, Class 9a, Class 9b, Class 9c, Class 10a, Class 10c, Class 10b
 defined_terms:
   - sole-occupancy unit
   - public corridor

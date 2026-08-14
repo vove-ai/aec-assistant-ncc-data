@@ -6,7 +6,7 @@ web_url: https://ncc.abcb.gov.au/editions/ncc-2025/adopted/volume-one/c-fire-res
 edition: "2025"
 volume: volume-one
 jurisdiction: aus
-building_classes: Class 1a,Class 1b,Class 10a,Class 10b,Class 10c
+building_classes_excluded: Class 1a,Class 1b,Class 10a,Class 10b,Class 10c
 defined_terms:
   - external walls
 ---

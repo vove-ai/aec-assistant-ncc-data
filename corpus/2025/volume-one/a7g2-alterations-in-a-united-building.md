@@ -6,7 +6,7 @@ web_url: https://ncc.abcb.gov.au/editions/ncc-2025/adopted/volume-one/a-governin
 edition: "2025"
 volume: volume-one
 jurisdiction: aus
-building_classes: Class 1a,Class 1b
+building_classes_excluded: Class 1a,Class 1b
 defined_terms:
   - alterations
 ---

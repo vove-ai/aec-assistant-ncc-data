@@ -89,7 +89,7 @@ test('golden file — the complete emitted document, byte for byte', () => {
     'volume: volume-one',
     'jurisdiction: aus',
     'supersedes: "2019: A5.6"',
-    'building_classes: Class 2,Class 3',
+    'building_classes_excluded: Class 2,Class 3',
     'defined_terms:',
     '  - Standard Fire Test',
     '---',
@@ -320,8 +320,8 @@ test('edition is always quoted; ordinary prose punctuation is not', () => {
     'title: Plant rooms, lift machine rooms and substations (Class 8)');
   assert.equal(line(clause({ title: 'Type A construction — roof' }), 'title'), 'title: Type A construction — roof');
   assert.equal(line(clause({ title: 'Children’s room' }), 'title'), 'title: Children’s room');
-  assert.equal(line(clause({ buildingClasses: 'Class 2,Class 3' }), 'building_classes'),
-    'building_classes: Class 2,Class 3');
+  assert.equal(line(clause({ buildingClasses: 'Class 2,Class 3' }), 'building_classes_excluded'),
+    'building_classes_excluded: Class 2,Class 3');
 });
 
 test('escapes a double quote and a backslash inside a quoted scalar', () => {
@@ -347,7 +347,7 @@ test('defined_terms is a block list in document order, each item quoted only whe
  * ============================================================ */
 
 const FIXED_ORDER = ['clause', 'term', 'title', 'citation', 'web_url', 'edition', 'volume',
-  'jurisdiction', 'supersedes', 'building_classes', 'defined_terms'];
+  'jurisdiction', 'supersedes', 'building_classes_excluded', 'defined_terms'];
 
 test('keys appear in the fixed order, and keys with no value are omitted', () => {
   const keys = fm(clause()).filter(l => /^[a-z_]+:/.test(l)).map(l => l.split(':')[0]);
@@ -362,7 +362,7 @@ test('a glossary unit uses term: in place of clause:, and never carries clause m
     title: 'Fire source feature', state: null, supersedes: null, buildingClasses: 'Class 2' });
   assert.ok(f.includes('term: Fire source feature'));
   assert.ok(!f.some(l => l.startsWith('clause:')));
-  assert.ok(!f.some(l => l.startsWith('building_classes:')), 'building classes belong to clauses');
+  assert.ok(!f.some(l => l.startsWith('building_classes_excluded:')), 'building classes belong to clauses');
 });
 
 test('a null web_url omits the key entirely rather than emitting an empty value', () => {

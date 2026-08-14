@@ -6,7 +6,7 @@ web_url: https://ncc.abcb.gov.au/editions/ncc-2025/adopted/volume-one/c-fire-res
 edition: "2025"
 volume: volume-one
 jurisdiction: aus
-building_classes: Class 1a,Class 1b,Class 2,Class 3,Class 4,Class 6,Class 7a,Class 7b,Class 8,Class 9a,Class 9c,Class 10a,Class 10b,Class 10c
+building_classes_excluded: Class 1a,Class 1b,Class 2,Class 3,Class 4,Class 6,Class 7a,Class 7b,Class 8,Class 9a,Class 9c,Class 10a,Class 10b,Class 10c
 ---
 
 # S5C13 — Type A fire-resisting construction — floor loading of Class 5 and 9b buildings: Concession

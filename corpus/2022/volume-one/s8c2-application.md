@@ -7,7 +7,7 @@ edition: "2022"
 volume: volume-one
 jurisdiction: aus
 supersedes: "2019: Spec C1.11: 2"
-building_classes: Class 1a, Class 1b, Class 10a, Class 10b, Class 10c
+building_classes_excluded: Class 1a, Class 1b, Class 10a, Class 10b, Class 10c
 defined_terms:
   - rise in storeys
   - external walls

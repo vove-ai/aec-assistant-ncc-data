@@ -7,7 +7,7 @@ edition: "2022"
 volume: volume-one
 jurisdiction: aus
 supersedes: "2019: A6.9"
-building_classes: Class 1a, Class 1b, Class 2, Class 3, Class 4, Class 5, Class 6, Class 7a, Class 7b, Class 8, Class 10a, Class 10b, Class 10c
+building_classes_excluded: Class 1a, Class 1b, Class 2, Class 3, Class 4, Class 5, Class 6, Class 7a, Class 7b, Class 8, Class 10a, Class 10b, Class 10c
 defined_terms:
   - health-care building
   - residential care building
