@@ -191,6 +191,38 @@ const transcriptHas = (transcript, re, describe, problems) => {
   }
 };
 
+/**
+ * Evidence patterns must match the CORPUS and not AGENTS.md.
+ *
+ * The prompt opens by telling the agent to `cat AGENTS.md`, and AGENTS.md documents this format by
+ * showing it: its "Reading a hit" block contains a literal `citation: NCC 2025 V1 C2D2` line, a
+ * `web_url: https://ncc.abcb.gov.au/…#C2D2` line and a `building_classes_excluded:` line, and its
+ * traps section quotes the Tasmanian passage. A loose evidence regex is therefore satisfied by an
+ * agent that read the documentation and never opened a corpus file — the one thing these checks
+ * exist to rule out. Each pattern below is pinned to something the doc does NOT contain:
+ *
+ *   citation  — end-anchored, because AGENTS.md's line carries a trailing `# quote this` comment
+ *   web_url   — the real `/editions/ncc-2025/…/volume-one/…` path, where the doc has an ellipsis
+ *               (this also rejects the NCC 2022 URL for the same clause, `/editions/ncc-2022/…`)
+ *   Tasmania  — the single-line form; AGENTS.md wraps that sentence across two `> ` lines
+ *   A6G3      — its `Class 1a,Class 1b,Class 3,…` value; the doc's example line is C3D10's value,
+ *               which is why ANSWER must never key on `building_classes_excluded:`
+ *
+ * `PREFIX` tolerates the `path:` and `12:` that grep prepends under -r and -n, and nothing else:
+ * an unbounded leading wildcard would re-open the hole it is here to close.
+ */
+const PREFIX = '(?:corpus\\/\\S+\\.md[:-])?(?:\\d+[:-])?';
+const nccUrl = (volume, anchor) =>
+  `https:\\/\\/ncc\\.abcb\\.gov\\.au\\/editions\\/ncc-2025\\/\\S+\\/${volume}\\/\\S+#${anchor}`;
+const frontmatterOf = (citation, anchor, volume = 'volume-one') => ({
+  citationLine: new RegExp(`^[ \\t]*${PREFIX}citation: ${citation}[ \\t\\r]*$`, 'm'),
+  webUrlLine: new RegExp(`^[ \\t]*${PREFIX}web_url: ${nccUrl(volume, anchor)}[ \\t\\r]*$`, 'm'),
+  webUrlField: new RegExp(`^${nccUrl(volume, anchor)}$`),
+});
+
+const C2D2 = frontmatterOf('NCC 2025 V1 C2D2', 'C2D2');
+const C3D10 = frontmatterOf('NCC 2025 V1 C3D10', 'C3D10');
+
 export const CHECKS = [
   {
     id: 'CHECK1',
@@ -246,23 +278,24 @@ files and say which volume each belongs to:
     title: 'citation is self-contained',
     proves: 'citation: and web_url: are always inside a `grep -A6` window, so an agent can cite a '
       + 'clause from the same hit that answered the question, with no second lookup.',
-    task: `Show that the citation and the authoritative URL are inside one grep window:
+    task: `Show that the citation and the authoritative URL are inside one grep window. Use the
+**Volume One** C2D2 file you globbed in Task 2 — do not take its name from here:
 
-    grep -A6 "^clause: C2D2$" corpus/2025/volume-one/c2d2-type-of-construction-required.md
+    grep -A6 "^clause: C2D2$" <the Volume One C2D2 file>
 
 Paste that output verbatim — the \`citation:\` and \`web_url:\` lines must appear in your message
-exactly as the file has them.`,
+exactly as the file has them, including the full URL.`,
     format: 'CHECK3 clause=C2D2 citation="<the citation: value>" web_url=<the web_url: value>',
     expect(f, transcript) {
       const problems = [];
       eq(f, 'clause', 'C2D2', problems);
       eq(f, 'citation', 'NCC 2025 V1 C2D2', problems);
-      matches(f, 'web_url', /^https:\/\/ncc\.abcb\.gov\.au\/\S*#C2D2$/,
-        'the ncc.abcb.gov.au URL ending in #C2D2', problems);
-      transcriptHas(transcript, /^[ \t]*citation:[ \t]*NCC 2025 V1 C2D2\b/m,
+      matches(f, 'web_url', C2D2.webUrlField,
+        'the NCC 2025 Volume One ncc.abcb.gov.au URL ending in #C2D2', problems);
+      transcriptHas(transcript, C2D2.citationLine,
         'the file\'s own `citation: NCC 2025 V1 C2D2` line', problems);
-      transcriptHas(transcript, /^[ \t]*web_url:[ \t]*https:\/\/ncc\.abcb\.gov\.au\/\S*#C2D2\b/m,
-        'the file\'s own `web_url:` line', problems);
+      transcriptHas(transcript, C2D2.webUrlLine,
+        'the file\'s own `web_url:` line, with its real /editions/ncc-2025/ path', problems);
       return problems;
     },
   },
@@ -291,8 +324,11 @@ instrument that passage names.`,
       matches(f, 'source', /^corpus\/2022\/volume-one\/part-j\d\S*\.md$/,
         'a corpus/2022/volume-one/part-j…md path', problems);
       matches(f, 'governing', /BCA 2019 Amendment 1/i, 'the instrument to name "BCA 2019 Amendment 1"', problems);
-      transcriptHas(transcript, /Section J is replaced with Section J of BCA 2019 Amendment 1/i,
-        'the Tasmanian blockquote', problems);
+      // Anchored to the corpus's single-line form: AGENTS.md quotes this same sentence, but wrapped
+      // across two `> ` lines, so an unanchored match would accept a restatement of the docs.
+      transcriptHas(transcript,
+        /^[ \t]*>?[ \t]*In Tasmania, for a Class 2 building and Class 4 part of a building, Section J is replaced with Section J of BCA 2019 Amendment 1\./m,
+        'the Tasmanian blockquote as one line, as the corpus file has it', problems);
       return problems;
     },
   },
@@ -315,7 +351,10 @@ apply to.`,
       eq(f, 'class2_in_excluded', 'no', problems);
       eq(f, 'class1a_applies', 'no', problems);
       matches(f, 'applies_to', /class 2/i, 'the answer to name Class 2', problems);
-      transcriptHas(transcript, /^[ \t]*(\d+:)?building_classes_excluded:[ \t]*Class 1a,Class 1b,Class 3,/m,
+      // A6G3's value starts `Class 1a,Class 1b,Class 3,` — AGENTS.md's example line is a different
+      // clause's value (`…,Class 10a,…`), so only the corpus file satisfies this.
+      transcriptHas(transcript,
+        new RegExp(`^[ \\t]*${PREFIX}building_classes_excluded: Class 1a,Class 1b,Class 3,`, 'm'),
         'the file\'s own `building_classes_excluded:` line', problems);
       return problems;
     },
@@ -339,18 +378,27 @@ apply to.`,
         clause says when a ceiling is deemed to have one?
 
 Write the answer as you would give it to an architect: quote \`citation:\` verbatim, link
-\`web_url:\`, and name the edition.`,
+\`web_url:\`, and name the edition. Paste that clause's own \`citation:\` and \`web_url:\` frontmatter
+lines, as the file has them, alongside the answer.`,
     format: 'ANSWER clause=<designation> citation="<citation>" web_url=<url> '
       + 'class2_applies=<yes|no> vic_variation=<yes|no> risf_clause=<designation>',
-    expect(f) {
+    expect(f, transcript) {
       const problems = [];
       eq(f, 'clause', 'C3D10', problems);
       eq(f, 'citation', 'NCC 2025 V1 C3D10', problems);
-      matches(f, 'web_url', /^https:\/\/ncc\.abcb\.gov\.au\/\S*#C3D10$/,
-        'the ncc.abcb.gov.au URL ending in #C3D10', problems);
+      matches(f, 'web_url', C3D10.webUrlField,
+        'the NCC 2025 Volume One ncc.abcb.gov.au URL ending in #C3D10', problems);
       eq(f, 'class2_applies', 'yes', problems);
       eq(f, 'vic_variation', 'no', problems);
       eq(f, 'risf_clause', 'A5G7', problems);
+      // The capstone needs evidence too, or every field above is guessable, derivable from CHECK3,
+      // or plausibly in training. Neither of these two lines appears in AGENTS.md — unlike C3D10's
+      // `building_classes_excluded:` value, which is the doc's own example line and is therefore
+      // deliberately NOT used here.
+      transcriptHas(transcript, C3D10.citationLine,
+        'the clause\'s own `citation: NCC 2025 V1 C3D10` line', problems);
+      transcriptHas(transcript, C3D10.webUrlLine,
+        'the clause\'s own `web_url:` line, with its real /editions/ncc-2025/ path', problems);
       return problems;
     },
   },
@@ -680,12 +728,43 @@ export function agentReusable(cache, { model, configHash }) {
  * HTTP
  * ========================================================================= */
 
+// 409 is deliberately absent: it is not transient, and it is the signal resolveEnvironment reads
+// to adopt an environment that already exists under this name.
+export const RETRY_STATUSES = new Set([408, 429, 500, 502, 503, 504, 529]);
+export const MAX_RETRIES = 2;
+export const defaultSleep = ms => new Promise(r => setTimeout(r, ms));
+
+/**
+ * A run costs real money, so one transient blip must not throw it away — raw fetch gets none of an
+ * SDK's backoff. But the retry is asymmetric on purpose:
+ *
+ *   GET  is idempotent. Retrying a 5xx or a dropped connection costs one more request.
+ *   POST is not. A 5xx or a lost connection on `POST /v1/sessions` may mean the session WAS
+ *        created and only the response went missing; retrying would start a second one and double
+ *        what the run costs. So POST retries on 429 alone — a rate limit is a rejection before
+ *        anything happened, and the API asks for the retry.
+ *
+ * `status === null` means fetch itself threw (network error or the wall-clock abort below).
+ */
+export function shouldRetry({ method, status = null, attempt, maxRetries = MAX_RETRIES }) {
+  if (attempt >= maxRetries) return false;
+  if (method === 'GET') return status === null || status >= 500 || RETRY_STATUSES.has(status);
+  return status === 429;
+}
+
+export function retryDelayMs(attempt, retryAfter = null) {
+  const secs = Number(retryAfter);
+  if (Number.isFinite(secs) && secs > 0) return Math.min(secs, 60) * 1000;
+  return 1000 * 2 ** attempt;
+}
+
 export async function apiRequest(pathname, {
   method = 'GET', body = null, apiKey, fetchImpl = fetch, origin = API_ORIGIN,
-  timeoutMs = REQUEST_TIMEOUT_MS,
+  timeoutMs = REQUEST_TIMEOUT_MS, maxRetries = MAX_RETRIES, sleep = defaultSleep, log = null,
 } = {}) {
   if (!apiKey) throw new Error('verify-agent: apiRequest called without an API key');
-  const res = await fetchImpl(`${origin}${pathname}`, {
+  const url = `${origin}${pathname}`;
+  const init = {
     method,
     headers: {
       'x-api-key': apiKey,
@@ -695,14 +774,37 @@ export async function apiRequest(pathname, {
       'user-agent': USER_AGENT,
     },
     body: body === null ? undefined : JSON.stringify(body),
-    // A wall-clock abort, because an HTTP client's timeout is per-chunk: a trickling response can
-    // otherwise block a poll indefinitely without ever tripping it.
-    signal: AbortSignal.timeout(timeoutMs),
-  });
-  const text = await res.text();
-  let json = null;
-  try { json = text ? JSON.parse(text) : null; } catch { /* reported raw below */ }
-  if (!res.ok) {
+  };
+
+  for (let attempt = 0; ; attempt++) {
+    let res;
+    try {
+      // A wall-clock abort, because an HTTP client's timeout is per-chunk: a trickling response
+      // can otherwise block a poll indefinitely without ever tripping it. Rebuilt each attempt —
+      // a signal is single-use.
+      res = await fetchImpl(url, { ...init, signal: AbortSignal.timeout(timeoutMs) });
+    } catch (e) {
+      if (!shouldRetry({ method, status: null, attempt, maxRetries })) {
+        // No body, no headers: the request carries the GitHub token and the API key.
+        throw new Error(`verify-agent: ${method} ${pathname} → ${e.name === 'TimeoutError' ? `no response within ${timeoutMs}ms` : `network error (${e.name})`}`);
+      }
+      if (log) log(`    …${method} ${pathname} failed (${e.name}); retrying`);
+      await sleep(retryDelayMs(attempt));
+      continue;
+    }
+
+    const text = await res.text();
+    let json = null;
+    try { json = text ? JSON.parse(text) : null; } catch { /* reported raw below */ }
+    if (res.ok) return json;
+
+    if (shouldRetry({ method, status: res.status, attempt, maxRetries })) {
+      const retryAfter = res.headers?.get?.('retry-after') ?? null;
+      if (log) log(`    …${method} ${pathname} → HTTP ${res.status}; retrying`);
+      await sleep(retryDelayMs(attempt, retryAfter));
+      continue;
+    }
+
     // The request body is NEVER included here — on session create it carries the GitHub token.
     const detail = json?.error ? `${json.error.type}: ${json.error.message}` : (text.slice(0, 400) || '(empty body)');
     const err = new Error(`verify-agent: ${method} ${pathname} → HTTP ${res.status} — ${detail}`
@@ -711,9 +813,18 @@ export async function apiRequest(pathname, {
     err.body = json;
     throw err;
   }
-  return json;
 }
 
+/**
+ * Follows the `page` → `next_page` cursor the managed-agents list endpoints document.
+ *
+ * Caveat, noted rather than guessed at: the skill is internally inconsistent about the ENVIRONMENTS
+ * list specifically — the general pagination section gives `page`/`next_page`, while the
+ * environments table gives `after_id`/`before_id`. Under the second scheme `page` is simply ignored
+ * and `next_page` is absent, so this returns the first page and stops. That is correct behaviour
+ * for its only caller (finding one environment by name among at most a handful) and would need the
+ * other scheme only past 100 environments in one workspace.
+ */
 async function listAll(pathname, ctx, { limit = 100, cap = MAX_EVENT_PAGES } = {}) {
   const out = [];
   let page = null;
@@ -818,7 +929,15 @@ export function parseArgs(argv = []) {
   const opts = { dryRun: false, noGithubToken: false, keepSession: false, help: false };
   for (const raw of argv) {
     const arg = String(raw);
-    if (!FLAGS.has(arg)) throw new Error(`verify-agent: unknown argument ${JSON.stringify(arg)}\n${USAGE}`);
+    if (!FLAGS.has(arg)) {
+      // Echo it only if it looks like a mistyped flag. This tool's arguments sit next to two
+      // credentials on the command line, and a positionally-pasted key must not land in scrollback
+      // (or in a CI log) just because it was in the wrong place.
+      const safe = /^--?[A-Za-z0-9][A-Za-z0-9-]{0,31}$/.test(arg)
+        ? JSON.stringify(arg)
+        : `a ${arg.length}-character positional argument (not echoed — it may be a credential)`;
+      throw new Error(`verify-agent: unknown argument ${safe}\n${USAGE}`);
+    }
     if (arg === '--dry-run') opts.dryRun = true;
     if (arg === '--no-github-token') opts.noGithubToken = true;
     if (arg === '--keep-session') opts.keepSession = true;
@@ -827,7 +946,6 @@ export function parseArgs(argv = []) {
   return opts;
 }
 
-const defaultSleep = ms => new Promise(r => setTimeout(r, ms));
 const intFromEnv = (env, key, fallback) => {
   const n = Number(env[key]);
   return Number.isFinite(n) && n > 0 ? n : fallback;
@@ -885,7 +1003,7 @@ export async function main(argv = [], {
     log('        that is the answer to whether a public repository needs one.\n');
   }
 
-  const ctx = { apiKey, fetchImpl, origin: env.ANTHROPIC_BASE_URL || API_ORIGIN };
+  const ctx = { apiKey, fetchImpl, origin: env.ANTHROPIC_BASE_URL || API_ORIGIN, sleep, log };
   const cache = readCache(cacheFile);
 
   const environment = await resolveEnvironment(ctx, { cache, log });
@@ -935,13 +1053,20 @@ export async function main(argv = [], {
       // archiving immediately can 400 with "cannot archive while running". Poll, then archive —
       // and never let a cleanup failure mask the real error.
       try {
+        let status = null;
         for (let i = 0; i < 10; i++) {
-          const s = await apiRequest(`/v1/sessions/${session.id}`, ctx);
-          if (s?.status !== 'running') break;
+          status = (await apiRequest(`/v1/sessions/${session.id}`, ctx))?.status ?? null;
+          if (status !== 'running') break;
           await sleep(500);
         }
-        await apiRequest(`/v1/sessions/${session.id}/archive`, { ...ctx, method: 'POST' });
-        log('  session archived.');
+        // Still running after the poll: archiving would be rejected anyway, and a session that is
+        // genuinely still working is not ours to cut off. Leave it and say where it is.
+        if (status === 'running') {
+          log(`  session still running after the settle poll — left alone: ${consoleUrl(session.id, workspace)}`);
+        } else {
+          await apiRequest(`/v1/sessions/${session.id}/archive`, { ...ctx, method: 'POST' });
+          log('  session archived.');
+        }
       } catch (e) {
         log(`  WARNING: could not archive session ${session.id} — ${e.message}`);
       }

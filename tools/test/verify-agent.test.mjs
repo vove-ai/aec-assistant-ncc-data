@@ -19,7 +19,7 @@ import {
   buildPrompt, buildEnvironmentBody, buildAgentBody, buildSessionBody, agentConfigHash, modelId,
   redact, requireCredentials, parseResultLines, evaluateTranscript, collectTranscript,
   sessionState, summariseUsage, describeEvent, consoleUrl, readCache, writeCache, agentReusable,
-  parseArgs, main,
+  shouldRetry, retryDelayMs, parseArgs, main,
 } from '../src/verify-agent.mjs';
 
 const API_KEY = 'sk-ant-THIS-MUST-NEVER-BE-PRINTED';
@@ -55,6 +55,7 @@ const EVIDENCE = {
     + 'replaced with Section J of BCA 2019 Amendment 1.',
   CHECK5: 'building_classes_excluded: Class 1a,Class 1b,Class 3,Class 4,Class 5,Class 6,Class 7a,'
     + 'Class 7b,Class 8,Class 9a,Class 9b,Class 9c,Class 10a,Class 10b,Class 10c',
+  ANSWER: `citation: NCC 2025 V1 C3D10\nweb_url: ${C3D10_URL}`,
 };
 
 /** A passing transcript, with any result line replaced or any evidence line dropped. */
@@ -345,12 +346,51 @@ test('a paraphrased answer fails: each evidence check needs the corpus\'s own by
     ['CHECK3', /citation: NCC 2025 V1 C2D2/],
     ['CHECK4', /Tasmanian blockquote/],
     ['CHECK5', /building_classes_excluded/],
+    ['ANSWER', /citation: NCC 2025 V1 C3D10/],
   ]) {
     const { results } = evaluateTranscript(transcript({ dropEvidence: [id] }));
     assert.equal(only(results, id).ok, false, `${id} passed without the raw output`);
     assert.ok(only(results, id).reasons.some(r => expected.test(r) && /verbatim/.test(r)),
       `${id} reasons ${JSON.stringify(only(results, id).reasons)}`);
   }
+});
+
+test('AGENTS.md is not evidence: an agent that only read the docs fails every evidence check', () => {
+  // The prompt's first instruction is `cat AGENTS.md`, and AGENTS.md documents this format BY
+  // SHOWING IT — a literal `citation: NCC 2025 V1 C2D2` line, a `web_url: …#C2D2` line, a
+  // `building_classes_excluded:` line and the Tasmanian passage all appear in it. So the doc's own
+  // text, plus result lines a model could write from having read it, must NOT satisfy the checks;
+  // otherwise the verification proves only that the agent can read documentation.
+  const docs = fs.readFileSync('AGENTS.md', 'utf8');
+  assert.match(docs, /^citation: NCC 2025 V1 C2D2/m, 'this test is worthless if the doc stops showing it');
+  assert.match(docs, /^web_url: https:\/\/ncc\.abcb\.gov\.au\/…#C2D2/m);
+  assert.match(docs, /^building_classes_excluded: Class 1a,Class 1b,Class 10a/m);
+
+  const fromDocsAlone = `${docs}\n\n${Object.values(PASS_LINES).join('\n')}`;
+  const { results } = evaluateTranscript(fromDocsAlone);
+  for (const id of ['CHECK1', 'CHECK3', 'CHECK4', 'CHECK5', 'ANSWER']) {
+    assert.equal(only(results, id).ok, false, `${id} was satisfiable from AGENTS.md alone`);
+    assert.ok(only(results, id).reasons.some(r => /verbatim/.test(r)),
+      `${id} should fail on evidence, not on a field: ${JSON.stringify(only(results, id).reasons)}`);
+  }
+  // CHECK2 has no evidence requirement by design — its two titles are the check.
+  assert.equal(only(results, 'CHECK2').ok, true);
+});
+
+test('a 2022 URL does not satisfy a 2025 citation check', () => {
+  const url2022 = C2D2_URL.replace('ncc-2025', 'ncc-2022');
+  const { results } = evaluateTranscript(transcript({
+    lines: { CHECK3: `CHECK3 clause=C2D2 citation="NCC 2025 V1 C2D2" web_url=${url2022}` },
+  }));
+  assert.equal(only(results, 'CHECK3').ok, false, 'the wrong edition must not pass');
+  assert.ok(only(results, 'CHECK3').reasons.some(r => /web_url/.test(r)));
+});
+
+test('the AGENTS.md URL placeholder does not satisfy the web_url field either', () => {
+  const { results } = evaluateTranscript(transcript({
+    lines: { CHECK3: 'CHECK3 clause=C2D2 citation="NCC 2025 V1 C2D2" web_url=https://ncc.abcb.gov.au/…#C2D2' },
+  }));
+  assert.equal(only(results, 'CHECK3').ok, false);
 });
 
 test('an empty transcript fails everything, and says so once per check', () => {
@@ -473,6 +513,47 @@ test('parseArgs accepts the four flags and rejects anything else', () => {
   assert.throws(() => parseArgs(['--upload']), /unknown argument "--upload"/);
 });
 
+test('parseArgs never echoes a positional argument — it sits next to two credentials on the command line', () => {
+  for (const secret of [API_KEY, GH_TOKEN]) {
+    assert.throws(() => parseArgs([secret]), e =>
+      !e.message.includes(secret) && /not echoed/.test(e.message) && new RegExp(`${secret.length}-character`).test(e.message));
+  }
+});
+
+/* ---------------------------------------------------------------------------
+ * Retry policy — a pure predicate, so it is testable without pretending to be
+ * the API. The asymmetry is the point: a retried POST can double-create.
+ * ------------------------------------------------------------------------ */
+
+test('a GET retries on transient failures; a POST retries only on 429', () => {
+  for (const status of [408, 429, 500, 502, 503, 504, 529, null]) {
+    assert.equal(shouldRetry({ method: 'GET', status, attempt: 0 }), true, `GET ${status}`);
+  }
+  for (const status of [400, 401, 403, 404, 409]) {
+    assert.equal(shouldRetry({ method: 'GET', status, attempt: 0 }), false, `GET ${status} is not transient`);
+  }
+  // A 5xx or a dropped connection on POST /v1/sessions may mean the session WAS created; retrying
+  // would start a second one and double the cost of the run.
+  assert.equal(shouldRetry({ method: 'POST', status: 429, attempt: 0 }), true);
+  for (const status of [500, 502, 503, 529, null]) {
+    assert.equal(shouldRetry({ method: 'POST', status, attempt: 0 }), false, `POST ${status} must not retry`);
+  }
+  assert.equal(shouldRetry({ method: 'GET', status: 500, attempt: 2 }), false, 'bounded at maxRetries');
+});
+
+test('409 never retries — it is the signal that an environment of this name already exists', () => {
+  assert.equal(shouldRetry({ method: 'POST', status: 409, attempt: 0 }), false);
+  assert.equal(shouldRetry({ method: 'GET', status: 409, attempt: 0 }), false);
+});
+
+test('retryDelayMs honours retry-after, else backs off, and is capped', () => {
+  assert.equal(retryDelayMs(0), 1000);
+  assert.equal(retryDelayMs(1), 2000);
+  assert.equal(retryDelayMs(0, '5'), 5000);
+  assert.equal(retryDelayMs(0, '9999'), 60_000, 'a hostile retry-after cannot stall the run for hours');
+  assert.equal(retryDelayMs(0, 'not-a-number'), 1000);
+});
+
 test('main refuses without credentials BEFORE it touches the network', async () => {
   let calls = 0;
   const fetchImpl = () => { calls += 1; throw new Error('main must not reach the network'); };
@@ -491,16 +572,25 @@ test('--dry-run prints the whole plan with no credentials, no network and no wri
   const before = readCache();
   await main(['--dry-run'], {
     fetchImpl: () => assert.fail('a dry run must not make a request'),
-    env: { GITHUB_TOKEN: GH_TOKEN },
+    // BOTH credentials present: the interesting case is a dry run by an operator who is ready to
+    // go, because that is when there is something to leak.
+    env: { ANTHROPIC_API_KEY: API_KEY, GITHUB_TOKEN: GH_TOKEN },
     log: (...a) => out.push(a.join(' ')),
   });
   const text = out.join('\n');
-  assert.match(text, /ANTHROPIC_API_KEY MISSING/);
+  assert.match(text, /ANTHROPIC_API_KEY present/);
   assert.match(text, /POST \/v1\/sessions/);
   assert.ok(text.includes(buildPrompt()), 'the operator must be able to read the exact prompt');
-  assert.ok(!text.includes(GH_TOKEN), 'a dry run must not echo the token it found in the environment');
+  assert.ok(!text.includes(GH_TOKEN), 'a dry run must not echo the GitHub token');
+  assert.ok(!text.includes(API_KEY), 'a dry run must not echo the API key');
   assert.match(text, new RegExp(REDACTED.replace(/[[\]]/g, '\\$&')));
   assert.deepEqual(readCache(), before, 'a dry run writes nothing');
+});
+
+test('--dry-run still reports a missing credential rather than pretending it is fine', async () => {
+  const out = [];
+  await main(['--dry-run'], { fetchImpl: () => assert.fail('no network'), env: {}, log: (...a) => out.push(a.join(' ')) });
+  assert.match(out.join('\n'), /ANTHROPIC_API_KEY MISSING/);
 });
 
 /* ---------------------------------------------------------------------------
