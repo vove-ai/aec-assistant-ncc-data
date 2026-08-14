@@ -454,6 +454,7 @@ const WARNING_CATEGORIES = new Set([
   'mathml-flattened', 'table-irregular', 'table-multirow-header', 'orphan-num', 'list-depth',
   // R72's four, plus the one that exists so that no text-drop path is silent again.
   'empty-subclause', 'empty-list-item', 'empty-callout', 'empty-table-reference', 'table-empty-rows',
+  'flattened-wrapper-item',
   'dropped-text',
 ]);
 
@@ -994,16 +995,16 @@ test('R72: an empty list item drops its label AND does not consume a letter', ()
   assert.equal(warnings.filter(w => w.startsWith('empty-list-item')).length, 1, 'the drop is recorded');
 });
 
-test('R72: an item whose only content is a nested list keeps its label', () => {
-  // The discriminating case, exactly as R61 has one. A bare label line is not content; a nested
-  // list under it is, and the Code prints that shape — `(c) solar radiation being—` with (i)/(ii)
-  // beneath it. Dropping the host would unlabel published law.
+test('R72: an item that holds a table and nothing else keeps its label', () => {
+  // The discriminating case, exactly as R61 has one. A bare label line is not content; a table
+  // under it is. (An item holding only a nested LIST is R74's case, not this one — see below.)
   const { bodyMd, warnings } = full22('<clause><title>T</title>'
     + '<subclause outputclass="subclause"><title>SubClause</title><num>1</num><p>x—</p>'
-    + '<ol outputclass="alpha"><li><ol><li>utilised for heating; and</li></ol></li>'
+    + '<ol outputclass="alpha">'
+    + '<li><table><tgroup cols="1"><tbody><row><entry>0.5</entry></row></tbody></tgroup></table></li>'
     + '<li>the energy source of the services.</li></ol></subclause></clause>');
   assert.match(bodyMd, /^\(a\)$/m);
-  assert.match(bodyMd, /^ {2}\(i\) utilised for heating; and$/m);
+  assert.match(bodyMd, /^\| 0\.5 \|$/m);
   assert.match(bodyMd, /^\(b\) the energy source of the services\.$/m);
   assert.equal(warnings.filter(w => w.startsWith('empty-list-item')).length, 0);
 });
@@ -1061,4 +1062,57 @@ test('R72: a table reference the ABCB deliberately left blank still renders', ()
     + '<table-reference><num>* * * * *</num><title>This table reference has been deliberately left blank</title>'
     + '</table-reference></clause>');
   assert.equal(bodyMd, '### Table * * * * * — This table reference has been deliberately left blank');
+});
+
+test('R74: an item with no text of its own that only holds a list is not an item', () => {
+  // The last shape the phantom label takes, and it survives R72 because the host is not empty — it
+  // has a sub-list under it. The 2025 draft ADDED A LEVEL: it emptied an existing item's text and
+  // hung the requirements that used to sit beside it underneath. The added level did not exist in
+  // NCC 2022, so its items were items of the enclosing list — checked against ncc.abcb.gov.au in
+  // all five instances, four of which land on the published lettering exactly. J1P1 is one:
+  // "(a) the function and use of the building; and (b) the level of human comfort required for the
+  // building use; and (c) solar radiation being—".
+  const { bodyMd, warnings } = full22('<clause><title>Energy use</title>'
+    + '<subclause outputclass="subclause"><title>SubClause</title><num>1</num><p>appropriate to—</p>'
+    + '<ol outputclass="alpha">'
+    + '<li> <ol><li>the function and use of the building; and</li>'
+    + '<li>the level of human comfort required for the building use; and</li></ol></li>'
+    + '<li>solar radiation being—<ol><li>utilised for heating; and</li></ol></li>'
+    + '</ol></subclause></clause>');
+  assert.match(bodyMd, /^\(a\) the function and use of the building; and$/m);
+  assert.match(bodyMd, /^\(b\) the level of human comfort required for the building use; and$/m);
+  assert.match(bodyMd, /^\(c\) solar radiation being—$/m);
+  assert.match(bodyMd, /^ {2}\(i\) utilised for heating; and$/m);
+  assert.equal(warnings.filter(w => w.startsWith('flattened-wrapper-item')).length, 1);
+});
+
+test('R74: an item with a sub-list AND text of its own keeps both, and its label', () => {
+  // The discriminating case: (c) above. An item that says something is a real item, and flattening
+  // it would splice its sub-paragraphs into the level above as though they were siblings of it.
+  const { bodyMd, warnings } = full22('<clause><title>T</title>'
+    + '<subclause outputclass="subclause"><title>SubClause</title><num>1</num><p>x—</p>'
+    + '<ol outputclass="alpha"><li>solar radiation being—<ol><li>utilised for heating; and</li>'
+    + '<li>controlled to minimise energy for cooling.</li></ol></li></ol></subclause></clause>');
+  assert.match(bodyMd, /^\(a\) solar radiation being—$/m);
+  assert.match(bodyMd, /^ {2}\(i\) utilised for heating; and$/m);
+  assert.equal(warnings.filter(w => w.startsWith('flattened-wrapper-item')).length, 0);
+});
+
+test('R74: an emptied inline element is not content, but a figure or a table is', () => {
+  // J1V1's host holds an <xref> whose text sat inside an insText range: mechanism 2 takes the text
+  // and leaves the element, and treating that husk as content would leave the phantom label it is
+  // standing in for. Anything that DOES render makes the item real.
+  const husk = full22('<clause><title>T</title>'
+    + '<subclause outputclass="subclause"><title>SubClause</title><num>1</num><p>x—</p>'
+    + '<ol outputclass="alpha"><li><xref href="y"/><ol><li>a thermal comfort level; and</li></ol></li>'
+    + '<li>the building complies.</li></ol></subclause></clause>').bodyMd;
+  assert.match(husk, /^\(a\) a thermal comfort level; and$/m);
+  assert.match(husk, /^\(b\) the building complies\.$/m);
+
+  const withFigure = full22('<clause><title>T</title>'
+    + '<subclause outputclass="subclause"><title>SubClause</title><num>1</num><p>x—</p>'
+    + '<ol outputclass="alpha"><li><image src="f.svg"/><ol><li>nested item.</li></ol></li>'
+    + '</ol></subclause></clause>').bodyMd;
+  assert.match(withFigure, /^\(a\)$/m, 'an item carrying a figure keeps its own label');
+  assert.match(withFigure, /^ {2}\(i\) nested item\.$/m);
 });

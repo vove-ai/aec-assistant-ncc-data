@@ -601,6 +601,71 @@ function flushPendingNum(sink, st) {
 
 /* -- lists ------------------------------------------------------------------ */
 
+/**
+ * R74 — an item that says nothing and only holds a list is not an item; its list IS the items.
+ *
+ * The last shape the phantom-label defect takes, and the one that survives R72 because the host is
+ * not empty — it has a sub-list under it. In NCC 2022's packages the 2025 draft repeatedly ADDED A
+ * LEVEL: it emptied an existing item's text (or created a new one) and hung the requirements that
+ * used to sit beside it in a nested list underneath. The base view empties the host correctly and
+ * the sub-list survives, so the corpus printed a bare `(a)` with the real requirements one level
+ * in — and pushed the item after them a letter early.
+ *
+ * The added level did not exist in NCC 2022, so its items were items of the enclosing list, and
+ * that is not an inference: it is the only position consistent with the surviving structure, and
+ * it was checked against ncc.abcb.gov.au in all five instances. Four land on the published
+ * lettering exactly — J1P1(1)(a)-(c), J6D10(3)(a)-(c), J9D4(2)(f)-(g), S5C19(1)(b)(i)-(iv) — and
+ * the fifth, J1V1, is closer to it than the nested form was.
+ *
+ * The test is STRUCTURAL and narrow: an `<li>` whose every child is whitespace or a single list.
+ * An item with any text, inline mark, table or figure of its own is a real item and is untouched.
+ * Measured over both complete editions: 5 sites, all in corpus/2022; corpus/2025 has none, so this
+ * cannot change the reference edition.
+ */
+function listItems(list, st) {
+  const out = [];
+  for (const li of elementChildren(list)) {
+    const inner = soleNestedList(li);
+    if (!inner) { out.push(li); continue; }
+    st.warnings.push('flattened-wrapper-item: an item with no text of its own held only a list — '
+      + 'its items are the enclosing list\'s');
+    out.push(...listItems(inner, st));         // …and a wrapper inside a wrapper flattens too
+  }
+  return out;
+}
+
+/** The single `<ol>`/`<ul>` an item holds and nothing else, or null. */
+function soleNestedList(li) {
+  if (li.nodeName !== 'li') return null;
+  let found = null;
+  for (let c = li.firstChild; c; c = c.nextSibling) {
+    if (c.nodeType === 3) { if ((c.data ?? '').trim()) return null; continue; }
+    if (c.nodeType !== 1) continue;
+    if (c.nodeName === 'ol' || c.nodeName === 'ul') {
+      if (found) return null;                  // two lists: keep the item, it groups them
+      found = c;
+      continue;
+    }
+    // An element the base view has already emptied — J1V1's `<xref>required</xref>` sits inside an
+    // insText range, so mechanism 2 takes its text and leaves the element behind. It renders
+    // nothing, so it is not content, and treating it as content would leave the phantom label it
+    // is standing in for. Anything that DOES render — text, a figure, a table, an equation — makes
+    // this a real item.
+    if (rendersNothing(c)) continue;
+    return null;
+  }
+  return found;
+}
+
+/** Would this subtree put anything in the output? Text, a figure, a table or an equation. */
+function rendersNothing(el) {
+  if ((el.textContent ?? '').trim()) return false;
+  for (const tag of ['img', 'image', 'table', 'equation-block', 'equation-inline']) {
+    if (el.nodeName === tag || el.getElementsByTagName(tag).length) return false;
+  }
+  return true;
+}
+
 // R72 — R61's rule, one level down: a list item that renders NOTHING has no label either, AND IT
 // DOES NOT CONSUME ONE. Both halves are the defect. An <li> that survives the base view but whose
 // entire content sat inside a 2025 insText range emitted a bare "(a)" — a requirement the Code does
@@ -616,7 +681,7 @@ function renderList(list, sink, st, depth, parentStyle) {
   const ordered = list.nodeName === 'ol';
   const style = ordered ? listStyle(list, parentStyle, st) : null;
   let i = 0;
-  for (const li of elementChildren(list)) {
+  for (const li of listItems(list, st)) {
     if (li.nodeName !== 'li') throw fail(`<${li.nodeName}>`, st, `as a child of <${list.nodeName}>`);
     const label = ordered ? `(${listLabel(style, i)})` : '-';
     // A <ul> is transparent to numbering: an <ol> below it still follows the enclosing <ol>.
