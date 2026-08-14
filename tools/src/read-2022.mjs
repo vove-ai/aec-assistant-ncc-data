@@ -461,7 +461,10 @@ export const OMITTED_2022_CLAUSES = [
   },
 ];
 
-const OMISSION_REASONS = new Set(['map-identity-unresolved', 'clause-is-2025-only']);
+/** The reasons an R51/R56 omission may carry. Exported because build.mjs decides whether a
+ *  permitted-null exception was SUPERSEDED by an omission, and a hand-copied pair would silently
+ *  under-match the day a third reason is added. */
+export const OMISSION_REASONS = new Set(['map-identity-unresolved', 'clause-is-2025-only']);
 
 // Refused at import, not at the moment an entry would have omitted something: an omission whose
 // evidence is a shrug is indistinguishable from a bug, and a build is the wrong place to find out.

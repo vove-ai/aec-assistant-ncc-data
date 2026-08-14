@@ -17,11 +17,12 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import {
   EDITIONS, KNOWN_EDITIONS, NULL_WEB_URL_CLAUSES, PARITY, PARITY_UNAVAILABLE, inScope,
-  forwardRefCheck, identityUnstatedError, nullWebUrlException, parityCheck, parseArgs, planReconcile, report, resolveUniqueness,
+  forwardRefCheck, identityUnstatedError, isWholeEdition, nullWebUrlException, parityCheck, parseArgs, planReconcile, report, resolveUniqueness,
   warningCategory, withholdPartialGlossary,
 } from '../src/build.mjs';
 import { DOCUMENTS_2025, readDocument2025 } from '../src/read-2025.mjs';
 import { SOURCE_FORWARD_REFS } from '../src/index.mjs';
+import { OMISSION_REASONS } from '../src/read-2022.mjs';
 import { normalizeUnit, figureUrlPrefix } from '../src/normalize.mjs';
 import { emitUnit } from '../src/emit.mjs';
 
@@ -964,4 +965,45 @@ test('R55: a clauseref stating fewer than both identities fails the build', () =
   assert.match(out, /3 clauseref\(s\) state fewer than both of the identities/);
   assert.match(out, /<clause @id> and <title @id>/, 'names both, so the reader knows what to look for');
   assert.match(out, /reopen the cross-publication defect/, 'and says what is at stake');
+});
+
+/* -- a scope guard has TWO axes ------------------------------------------------ */
+
+test('scope: the whole-edition predicate needs BOTH axes, not just --volumes', () => {
+  // The shape that bit twice. `--volumes` narrows which documents were read; `--sections` narrows
+  // which of their units were EMITTED, and `records` — the body-search space every corpus-wide
+  // reconciliation reads — is built from the section-filtered set while `renumbered` is collected
+  // before the filter. So a section slice narrows the evidence exactly the way a volume slice does,
+  // and `--edition 2022 --sections A` failed with the identical message after the volume axis alone
+  // was fixed. Exported and asserted here so the next guard reuses it rather than re-deriving it.
+  const all = [{ key: 'volume-one' }, { key: 'volume-two' }];
+  const one = [{ key: 'volume-one' }];
+  assert.equal(isWholeEdition(all, all, null), true, 'every document, no section filter');
+  assert.equal(isWholeEdition([...all].reverse(), all, null), true, 'order does not matter');
+  assert.equal(isWholeEdition(one, all, null), false, '--volumes narrows it');
+  assert.equal(isWholeEdition(all, all, ['A']), false, '--sections narrows it too');
+  assert.equal(isWholeEdition(one, all, ['A']), false, 'and both together');
+  // Exact set equality, not a count: naming every document explicitly must still be the whole.
+  assert.equal(isWholeEdition([{ key: 'volume-one' }, { key: 'volume-one' }], all, null), false,
+    'a repeated document is not two documents');
+});
+
+test('R62: a --sections slice is skipped for the same reason a --volumes slice is', () => {
+  // Both directions fire on a section slice, and the "unlisted" half is the one easy to miss: a
+  // designation is excluded only when the corpus shows it is a REAL designation here (`clause:
+  // F1D6`, `### Table F1D6`), and those files live in sections the slice did not build. Measured on
+  // the real package before the fix: `--edition 2022 --sections A` reported 16 unlisted tokens.
+  const partial = [rec('2022/volume-one/a1g1.md', '---\nclause: A1G1\n---\n\nsee F1D6 here.\n')];
+  const renumbered = [{ base: 'F1D5', accepted: 'F1D6', file: 'F1D6-x.xml' }];
+  assert.ok(forwardRefCheck('2022', partial, renumbered, { complete: true }),
+    'a complete run still reconciles — the guard must not disable the check outright');
+  assert.equal(forwardRefCheck('2022', partial, renumbered, { complete: false }), null);
+});
+
+test('the omission reasons build.mjs matches on are the reader\'s, not a copy', () => {
+  // `supersededNulls` used to hand-duplicate the two strings. Harmless while the set is exhaustive
+  // and validated at import — and silently under-matching the day a third reason is added.
+  assert.ok(OMISSION_REASONS.has('map-identity-unresolved'));
+  assert.ok(OMISSION_REASONS.has('clause-is-2025-only'));
+  assert.equal(OMISSION_REASONS.size, 2, 'if this grows, the supersede match grows with it for free');
 });

@@ -47,7 +47,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { DOCUMENTS_2025, readDocument2025 } from './read-2025.mjs';
-import { DOCUMENTS_2022, readPackage2022 } from './read-2022.mjs';
+import { DOCUMENTS_2022, OMISSION_REASONS, readPackage2022 } from './read-2022.mjs';
 import { normalizeUnit, figureUrlPrefix } from './normalize.mjs';
 import { emitUnit, unitRelPath } from './emit.mjs';
 import { buildLinkIndex, resolveWebUrl } from './weblinks.mjs';
@@ -922,10 +922,31 @@ function buildEdition(editionKey, opts) {
   const identityFailure = identityUnstatedError(identityUnstated);
   if (identityFailure) failures.push(identityFailure);
 
-  // R50, the same staleness discipline the clauseref rulings have: an exception that can never
-  // fire is a claim about the source that nobody is checking. Scoped to the documents this run
-  // selected, so a --volumes slice does not report the rest of the edition's exceptions as dead.
+  /* -- what this run is evidence ABOUT ---------------------------------------
+   * A scope guard in this build has TWO axes, and a guard written on one of them is half a guard.
+   * `--volumes` narrows which documents were read; `--sections` narrows which of their units were
+   * EMITTED — and `records`, the set every corpus-wide reconciliation searches, is built from the
+   * section-filtered units while `renumbered` is collected before the filter. Both narrowings make
+   * "is it in the corpus?" unanswerable, and the failure reads identically either way:
+   * `forwardRefCheck` was fixed for `--volumes` and still fell over on `--sections A`.
+   *
+   * So the predicate is computed ONCE and shared, rather than re-derived per guard. Documents by
+   * exact set equality, so naming all four explicitly is not punished.
+   *
+   * Not every guard needs both axes, and two deliberately do not — see `parityCheck` (per-document,
+   * so only the section axis can make a row partial) and `withholdPartialGlossary` (the risk it
+   * covers needs glossary units to be IN scope, and then every selected document contributes its
+   * whole glossary). `planReconcile` is the precedent that got it right first: it takes `producible`
+   * from the pre-filter unit set precisely so a `--sections` slice keeps what it did not rebuild.
+   */
   const selectedVolumes = new Set(docs.map(d => d.key));
+  const wholeEdition = isWholeEdition(docs, ed.documents, opts.sections);
+
+  // R50, the same staleness discipline the clauseref rulings have: an exception that can never
+  // fire is a claim about the source that nobody is checking. A permitted null fires only when the
+  // clause is EMITTED, so this needs both axes — a `--sections A` run would otherwise report a
+  // Section E exception as dead. (Its `supersededNulls` counterpart does not: an omission is
+  // recorded during the map walk, before the scope gate.)
   const firedNulls = new Set(permittedNullClauses.map(({ exception }) => exception));
   // An entry whose clause is OMITTED under R51/R56 has not gone stale — it has been SUPERSEDED,
   // and by a ruling that cites the same evidence. Deleting it would throw away a measurement about
@@ -935,9 +956,11 @@ function buildEdition(editionKey, opts) {
   // and matched on edition and reason as well as name, since another edition may use both again.
   const supersededNulls = new Set(NULL_WEB_URL_CLAUSES.filter(e => e.edition === String(editionKey)
     && omittedClauses.some(o => o.doc === e.volume && o.clause === e.clause
-      && (o.reason === 'map-identity-unresolved' || o.reason === 'clause-is-2025-only'))));
-  const deadNulls = NULL_WEB_URL_CLAUSES.filter(e => e.edition === String(editionKey)
-    && selectedVolumes.has(e.volume) && !firedNulls.has(e) && !supersededNulls.has(e));
+      && OMISSION_REASONS.has(o.reason))));
+  const deadNulls = wholeEdition
+    ? NULL_WEB_URL_CLAUSES.filter(e => e.edition === String(editionKey)
+      && selectedVolumes.has(e.volume) && !firedNulls.has(e) && !supersededNulls.has(e))
+    : [];
   if (deadNulls.length) {
     failures.push([
       `build: ${deadNulls.length} NULL_WEB_URL_CLAUSES entr(y/ies) exempted nothing. A permitted null `
@@ -951,13 +974,9 @@ function buildEdition(editionKey, opts) {
   supersededNullClauses.push(...[...supersededNulls].map(e => ({ volume: e.volume, clause: e.clause, state: e.state ?? null })));
 
   // R62: what the corpus publishes must match what its index says about the Code's own forward
-  // references. Run on the emitted records, so it reads the bytes rather than an intention.
-  // Exact set equality against the edition's documents, the same ownership test the glossary guard
-  // uses — so naming every document explicitly is not punished, and a slice is never mistaken for
-  // the whole.
-  const complete = selectedVolumes.size === ed.documents.length
-    && ed.documents.every(d => selectedVolumes.has(d.key));
-  const forwardFailure = forwardRefCheck(editionKey, records, renumbered, { complete });
+  // references. Run on the emitted records, so it reads the bytes rather than an intention — and
+  // therefore only meaningful over a whole edition, on both axes.
+  const forwardFailure = forwardRefCheck(editionKey, records, renumbered, { complete: wholeEdition });
   if (forwardFailure) failures.push(forwardFailure);
 
   // A run that did not read every document must not rewrite the glossary from a partial view.
@@ -1262,6 +1281,33 @@ function droppedCitationsBlock(built) {
  *
  * @returns {?string} a failure naming both directions of the difference, or null.
  */
+/**
+ * Is this run evidence about the WHOLE edition, on both axes?
+ *
+ * Exported and shared rather than re-derived, because a guard written on one axis is half a guard
+ * and this shape has now bitten twice: `forwardRefCheck` was fixed for `--volumes` and still fell
+ * over on `--sections A` with the identical message. `--volumes` narrows which documents were read;
+ * `--sections` narrows which of their units were EMITTED — and every corpus-wide reconciliation
+ * searches the emitted records, so both narrowings make "is it in the corpus?" unanswerable.
+ *
+ * Documents by exact set equality, so spelling all four out explicitly is not punished.
+ *
+ * Not every guard wants this. `parityCheck` is per-document, so only the section axis can make one
+ * of its rows partial; `withholdPartialGlossary`'s risk needs glossary units to be in scope, and
+ * then every selected document contributes its whole glossary. `planReconcile` is the precedent
+ * that got both axes right first — it takes `producible` from the PRE-filter unit set so a
+ * `--sections` slice keeps the files it did not rebuild instead of deleting them.
+ *
+ * @param {Array<{key: string}>} selected  documents this run read
+ * @param {Array<{key: string}>} all       the edition's documents
+ * @param {?string[]} sections             the `--sections` filter, or null
+ */
+export function isWholeEdition(selected, all, sections) {
+  if (sections) return false;
+  const keys = new Set(selected.map(d => d.key));
+  return keys.size === all.length && all.every(d => keys.has(d.key));
+}
+
 /**
  * R55 — every clauseref must state BOTH of the identities the join compares.
  *
