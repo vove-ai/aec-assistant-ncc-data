@@ -635,9 +635,21 @@ function renderTable(table, st) {
     grid[r] ??= [];
     let col = 0;
     for (const cell of row.cells) {
-      const { cs, rs } = spansOf(cell, row.cols, st);
+      const { cs, rs, startCol } = spansOf(cell, row.cols, st);
       if (cs > 1 || rs > 1) irregular++;
       while (grid[r][col] !== undefined) col++;
+      // CALS names an ABSOLUTE start column; the loop above computes the next free one. The two
+      // agree in every entry of all four 2022 packages (measured: 0 disagreements in 1,337) — but
+      // agreement by luck of the source is not agreement by construction, and a row that starts
+      // part-way across (CALS permits it) would shift a numeric limit under the wrong heading with
+      // nothing in the output to show for it. Asserted rather than assumed.
+      if (startCol !== null && startCol !== col) {
+        throw spanFail(
+          `<${cell.nodeName} namest="${cell.getAttribute('namest')}"> names column ${startCol + 1} `
+          + `but the row is filled only to column ${col} — a cell before it is missing, and placing `
+          + 'this one at the next free column would shift the rest of the row', st,
+        );
+      }
       for (let dr = 0; dr < rs; dr++) {
         grid[r + dr] ??= [];
         for (let dc = 0; dc < cs; dc++) grid[r + dr][col + dc] = cell;
@@ -727,7 +739,7 @@ function colsOf(tgroup) {
 }
 
 /**
- * A cell's (colspan, rowspan) in EITHER table vocabulary.
+ * A cell's (colspan, rowspan) in EITHER table vocabulary, plus the column CALS says it starts at.
  *
  * 2025's HTML says `colspan`/`rowspan`; 2022's CALS says `nameend`/`namest` (two colspec NAMES,
  * so the width is a property of the tgroup, not of the cell) and `morerows` (the count of
@@ -738,6 +750,9 @@ function colsOf(tgroup) {
  * shifts one column left, so Table C3D3 publishes Type B's 33 000 m3 volume limit under Type A,
  * with nothing in the output to show for it. Hence the throws: a span that cannot be resolved is
  * never approximated.
+ *
+ * `startCol` is returned rather than acted on here, because whether it is right depends on where
+ * the row has got to — which only `renderTable` knows. Null when the cell names no start column.
  */
 function spansOf(cell, cols, st) {
   const num = (attr, dflt) => {
@@ -765,18 +780,30 @@ function spansOf(cell, cols, st) {
   let cs = html('colspan');
   let rs = html('rowspan');
 
+  // An entry may also carry a bare `colname`, which places it at ONE absolute column — the same
+  // instruction as namest/nameend without a span, and one this renderer does not implement.
+  // Measured: 0 entries carry it in any of the four packages, so refusing it costs nothing and
+  // closes the misplacement hole from the other side rather than ignoring an attribute that moves
+  // cells.
+  if (cell.getAttribute('colname')) {
+    throw spanFail(`<${cell.nodeName} colname="${cell.getAttribute('colname')}"> places a cell at an `
+      + 'absolute column, which this renderer does not implement (measured: no entry in any package carries one)', st);
+  }
+
+  let startCol = null;
   if (cs === 1) {
     const st0 = colIndex('namest');
     const en = colIndex('nameend');
     if (st0 !== null && en !== null) {
       if (en < st0) throw spanFail(`<${cell.nodeName}> has nameend before namest`, st);
       cs = en - st0 + 1;
+      startCol = st0;
     } else if (st0 !== null || en !== null) {
       throw spanFail(`<${cell.nodeName}> carries one of namest/nameend; they name a span together`, st);
     }
   }
   if (rs === 1) rs = num('morerows', 0) + 1;
-  return { cs, rs };
+  return { cs, rs, startCol };
 }
 
 /** A span that cannot be resolved gets its OWN error: `fail`'s "add it to the allowlist" advice is

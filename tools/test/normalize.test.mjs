@@ -727,6 +727,29 @@ test('CALS spans are the SAME grid rule under different attribute names — more
   ]);
 });
 
+test('CALS namest is an ABSOLUTE start column, and a cell that would land elsewhere THROWS', () => {
+  // `namest`/`nameend` name two columns; this renderer takes the WIDTH from them and places the
+  // cell at the next free position. Those agree in every entry of all four 2022 packages (measured:
+  // 0 disagreements in 1,337), so no corpus file is affected — but that is safe by luck of the
+  // source, not by construction. A row that starts part-way across (CALS allows it) would put a
+  // numeric limit under the wrong heading with nothing in the output to show for it, which is
+  // exactly what this module promises never to do. So the agreement is asserted rather than
+  // assumed, and Tasks 13/14 regenerate ~9,000 files on this code.
+  assert.throws(() => md22('<clause><title>T</title><table-reference><num>X</num><title>T</title>'
+    + '<table><tgroup cols="3">'
+    + '<colspec colname="c1" colnum="1"/><colspec colname="c2" colnum="2"/><colspec colname="c3" colnum="3"/>'
+    + '<tbody><row><entry namest="c2" nameend="c3">nothing fills column 1</entry></row></tbody>'
+    + '</tgroup></table></table-reference></clause>'), /namest="c2"/);
+
+  // A bare `colname` on an entry is the same instruction without a span — an absolute placement
+  // this renderer does not implement. Measured: 0 entries carry one in any package, so refusing it
+  // costs nothing and closes the same hole from the other side.
+  assert.throws(() => md22('<clause><title>T</title><table-reference><num>X</num><title>T</title>'
+    + '<table><tgroup cols="2"><colspec colname="c1" colnum="1"/><colspec colname="c2" colnum="2"/>'
+    + '<tbody><row><entry colname="c2">A</entry></row></tbody>'
+    + '</tgroup></table></table-reference></clause>'), /colname="c2"/);
+});
+
 test('a CALS span naming a column that does not exist THROWS — it cannot be placed by guessing', () => {
   // The alternative to throwing is placing the cell somewhere plausible, which is how a numeric
   // limit ends up under the wrong heading with nothing in the output to show for it.
