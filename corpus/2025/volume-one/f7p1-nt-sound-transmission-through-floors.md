@@ -1,0 +1,19 @@
+---
+clause: F7P1
+title: Sound transmission through floors
+citation: NCC 2025 V1 F7P1 (NT)
+web_url: https://ncc.abcb.gov.au/editions/ncc-2025/adopted/volume-one/6-northern-territory/nt-f7-sound-transmission-and-insulation
+edition: "2025"
+volume: volume-one
+jurisdiction: nt
+building_classes_excluded: Class 1a,Class 1b,Class 4,Class 5,Class 6,Class 7a,Class 7b,Class 8,Class 9a,Class 9b,Class 9c,Class 10a,Class 10b,Class 10c
+defined_terms:
+  - sole-occupancy units
+  - sole-occupancy unit
+---
+
+# F7P1 — Sound transmission through floors
+
+Floors separating sole-occupancy units or a sole-occupancy unit from a plant room, lift shaft, stairway, public corridor must provide insulation against the transmission of airborne and impact generated sound sufficient to prevent illness or loss of amenity to the occupants.
+
+> NT F7P1 only applies to a Class 2 or 3 building or a Class 9c building.

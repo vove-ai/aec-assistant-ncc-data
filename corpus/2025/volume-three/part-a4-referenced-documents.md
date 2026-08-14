@@ -1,0 +1,37 @@
+---
+title: Referenced documents
+citation: NCC 2025 V3 Referenced documents
+web_url: https://ncc.abcb.gov.au/editions/ncc-2025/adopted/volume-three/a-governing-requirements/part-a4-referenced-documents
+edition: "2025"
+volume: volume-three
+jurisdiction: aus
+defined_terms:
+  - plumbing
+  - drainage
+  - Deemed-to-Satisfy Provisions
+  - Verification Methods
+  - Performance Solution
+  - Performance Requirements
+  - Deemed-to-Satisfy Solution
+  - Verification Method
+---
+
+# Referenced documents
+
+This Part explains how documents referenced in the NCC are adopted and applied. The NCC itself does not contain details of every design and construction requirement for a building or plumbing or drainage system. As such, the NCC calls upon or “references” other documents with this information. These are called NCC referenced documents. Examples of such documents are Australian Standards, ABCB protocols, ABCB standards and other publications.
+
+There are multiple types of referenced documents. A primary referenced document is one referenced in Schedule 2 of the NCC or included in the Register of Alternative Referenced Documents on the ABCB website. A secondary referenced document is one referenced in a primary referenced document. Other referenced documents are referenced by secondary and subsequently referenced documents.
+
+> Schedule 2 is only mandatory to Deemed-to-Satisfy Provisions, Specifications and Verification Methods. Where the register of alternative referenced documents is used, the documents listed are only mandatory to Deemed-to-Satisfy Provisions, Specifications and Verification Methods in lieu of editions included in Schedule 2. However, referenced documents are only applicable to the NCC provision that references that document.
+>
+> A proponent undertaking a Performance Solution can use any element or edition of any document, if they help satisfy the Performance Requirements. They do not need to use the documents listed in Schedule 2 or the register of alternative referenced documents.
+>
+> Schedule 2 and the register of alternative referenced documents list the specific edition (or editions) of the Standard or other document adopted, including any amendments considered appropriate for Schedule 2, the register of alternative referenced documents, the Deemed-to-Satisfy Provisions, Specifications or Verification Methods. Other editions of (or amendments to) the referenced document are not adopted and have no standing under the NCC.
+>
+> A primary referenced document may refer to a secondary referenced document. A4G1(6) stipulates that the secondary referenced document is the edition of the document that existed at the time of publication of the primary referenced document. When another edition of (or amendment to) a secondary referenced document is released, subject to the exemption to A4G1, that edition (or amendment) is not adopted for the purposes of the primary referenced document.
+>
+> A4G3 means that contractual matters or clauses defining responsibilities of various parties, and matters not appropriate for adoption in the NCC are not included when a document is called up in the NCC.
+>
+> Note 2 to A4G1 prevents simultaneous use of various editions of a referenced document for a given project under a Deemed-to-Satisfy Solution or a Performance Solution using a Verification Method found in the NCC. Never-the-less, it is possible to use various editions of a referenced document under a different Performance Solution where it is demonstrated that the relevant Performance Requirements are met.
+>
+> Note 3 to A4G1 prevents the use of a document included in the register of alternative referenced documents for a State or Territory variation to the NCC.

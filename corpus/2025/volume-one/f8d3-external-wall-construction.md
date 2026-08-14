@@ -1,0 +1,96 @@
+---
+clause: F8D3
+title: External wall construction
+citation: NCC 2025 V1 F8D3
+web_url: https://ncc.abcb.gov.au/editions/ncc-2025/adopted/volume-one/f-health-and-amenity/part-f8-condensation-management#F8D3
+edition: "2025"
+volume: volume-one
+jurisdiction: aus
+building_classes_excluded: Class 1a,Class 1b,Class 3,Class 5,Class 6,Class 7a,Class 7b,Class 8,Class 9a,Class 9b,Class 9c,Class 10a,Class 10b,Class 10c
+defined_terms:
+  - pliable building membrane
+  - sarking-type material
+  - control layer
+  - external wall
+  - primary insulation layer
+  - vapour permeance
+  - cavity
+  - cavities
+  - storey
+  - envelope
+  - Vapour permeance
+  - climate zones
+  - Deemed-to-Satisfy Provisions
+  - external walls
+  - sole-occupancy units
+  - required
+---
+
+# F8D3 — External wall construction
+
+**(1)** Where a pliable building membrane or a sarking-type material is installed as a control layer in an external wall, it must—
+
+(a) comply with AS 4200.1; and
+(b) be installed in accordance with AS 4200.2.
+
+**(2)** Subject to (5), any control layer incorporated between the cladding and the exterior side of the primary insulation layer in an external wall must achieve the vapour permeance specified in Table F8D3.
+
+**(3)** Subject to (4) and (5), an external wall without a pliable building membrane or a water barrier between the cladding and the exterior side of the primary insulation layer, must incorporate a drained and ventilated cavity.
+
+**(4)** Subject to (5), for the purposes of (2) and (3), a drained and ventilated cavity must—
+
+(a) be located between the cladding and the external side of the primary insulation layer, or the outermost control layer; and
+(b) constructed from cavity battens, spacers or the like where applicable with a depth of at least 12 mm; and
+(c) be unobstructed by any control layer; and
+(d) be drained to the exterior, including where cavities are vertically compartmentalised in a multi-storey building; and
+(e) have openings with a free area of not less than 1,000 mm2/m of wall provided at—
+  (i) the base and top of the cavity; or
+  (ii) each storey or level to where the cavity is closed.
+
+**(5)** The requirements of (2), (3) and (4) do not apply to a—
+
+(a) single skin masonry wall; or
+(b) single skin concrete wall; or
+(c) wall constructed from insulated sandwich panels for the full extent of the external wall; or
+(d) wall that does not form part of the building envelope; or
+(e) portion of the external wall below natural ground level.
+
+### Table F8D3 — Vapour permeance requirements
+
+| Climate zone | Wall construction | Vapour permeance (µg/N.s) |
+| --- | --- | --- |
+| 1 | No cavity | ≥ 0.0022 to < 1.1403 |
+| 1 | Drained and ventilated cavity | ≥ 0 to < 1.1403 |
+| 3 | No cavity | ≥ 0.1429 |
+| 3 | Drained and ventilated cavity | ≥ 0.0022 |
+| 4, 5 | No cavity | ≥ 1.1403 |
+| 4, 5 | Drained and ventilated cavity | ≥ 0.1429 |
+| 6, 7, 8 | No cavity | X |
+| 6, 7, 8 | Drained and ventilated cavity | ≥ 1.1403 |
+
+> X = A cavity must be provided in climate zones 6, 7 and 8.
+
+> In cooler climates, a continuous air or vapour control layer or a water barrier with higher vapour permeance is desirable to allow outward drying of internal moisture. In tropical climates, materials with a relatively lower vapour permeance are desirable to limit outdoor moisture being driven inward.
+>
+> Open-cell insulation, such as mineral wool or fibreglass, typically has a high vapour permeance, while closed-cell insulation such as polystyrene typically has a low vapour permeance.
+>
+> Deemed-to-Satisfy Provisions require external walls without a pliable building membrane or water barrier and those that form part of the building envelope of sole-occupancy units in climate zones 6, 7 and 8 to incorporate a drained and vented cavity, unless the wall is constructed from insulated sandwich panels.
+>
+> Devices which restrict vermin entry or service penetrations may be used if they facilitate drainage and ventilation as required by this Part.
+>
+> The vapour permeance range listed in Table F8D3 corresponds to the classes (as defined in AS 4200.1) listed in Explanatory Table F8D3, when tested in accordance with ASTM-E96 Procedure B — Water Method at 23°C and 50% relative humidity.
+>
+> ### Table F8D3 (explanatory) — Vapour permeance classes
+>
+> | Climate zone | Wall construction | Vapour permeance class as defined in AS 4200.1 |
+> | --- | --- | --- |
+> | 1 | No cavity | 2 or 3 |
+> | 1 | Drained and ventilated cavity | 1, 2 or 3 |
+> | 3 | No cavity | 3 or 4 |
+> | 3 | Drained and ventilated cavity | 2, 3 or 4 |
+> | 4, 5 | No cavity | 4 |
+> | 4, 5 | Drained and ventilated cavity | 3 or 4 |
+> | 6, 7, 8 | No cavity | X |
+> | 6, 7, 8 | Drained and ventilated cavity | 4 |
+>
+> > X = not permitted.

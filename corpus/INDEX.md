@@ -13,12 +13,17 @@ authoritative source.
 | edition | files | index | amendment state |
 |---|---|---|---|
 | 2022 | 258 | [2022/INDEX.md](2022/INDEX.md) | NCC 2022 — as first published, no amendment |
-| 2025 | 237 | [2025/INDEX.md](2025/INDEX.md) | NCC 2025 — ABCB XML dataset v1.2 |
+| 2025 | 3101 | [2025/INDEX.md](2025/INDEX.md) | NCC 2025 — ABCB XML dataset v1.2 |
 
 ## Directories
 
 | directory | files |
 |---|---|
 | 2022/volume-one | 258 |
-| 2025/volume-one | 237 |
-| **total** | **495** |
+| 2025/glossary | 555 |
+| 2025/housing-provisions | 360 |
+| 2025/livable-housing | 18 |
+| 2025/volume-one | 1397 |
+| 2025/volume-three | 450 |
+| 2025/volume-two | 321 |
+| **total** | **3359** |

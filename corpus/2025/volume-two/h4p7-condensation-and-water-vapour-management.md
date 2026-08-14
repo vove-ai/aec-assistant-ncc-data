@@ -1,0 +1,18 @@
+---
+clause: H4P7
+title: Condensation and water vapour management
+citation: NCC 2025 V2 H4P7
+web_url: https://ncc.abcb.gov.au/editions/ncc-2025/adopted/volume-two/h-class-1-and-10-buildings/part-h4-health-and-amenity#H4P7
+edition: "2025"
+volume: volume-two
+jurisdiction: aus
+building_classes_excluded: Class 2,Class 3,Class 4,Class 5,Class 6,Class 7a,Class 7b,Class 8,Class 9a,Class 9b,Class 9c,Class 10a,Class 10b,Class 10c
+defined_terms:
+  - condensation
+---
+
+# H4P7 — Condensation and water vapour management
+
+Risks associated with water vapour and condensation must be managed to minimise their impact on the health of occupants.
+
+> H4P7 only applies to a Class 1 building.
