@@ -51,7 +51,7 @@ import { DOCUMENTS_2022, readPackage2022 } from './read-2022.mjs';
 import { normalizeUnit, figureUrlPrefix } from './normalize.mjs';
 import { emitUnit, unitRelPath } from './emit.mjs';
 import { buildLinkIndex, resolveWebUrl } from './weblinks.mjs';
-import { buildIndexes } from './index.mjs';
+import { buildIndexes, SOURCE_FORWARD_REFS } from './index.mjs';
 import { fetchAll } from './fetch.mjs';
 
 const CORPUS = 'corpus';
@@ -777,7 +777,12 @@ function buildEdition(editionKey, opts) {
   const permittedNullClauses = [];
   const droppedCitations = [];
   const omittedClauses = [];
+  const recoveredClauses = [];
+  const supersededNullClauses = [];
+  const renumbered = [];
   const unfiredOmissions = [];
+  let identityRedirects = 0;
+  let identityUnstated = 0;
   const sectionsSeen = new Set();
   const stats = {
     editionKey,
@@ -798,7 +803,11 @@ function buildEdition(editionKey, opts) {
     const all = ed.readUnits(doc, { diagnostics });
     for (const d of diagnostics.droppedCitations ?? []) droppedCitations.push({ doc: doc.key, ...d });
     for (const o of diagnostics.omittedClauses ?? []) omittedClauses.push({ doc: doc.key, ...o });
-    for (const u of diagnostics.unfiredOmissions ?? []) unfiredOmissions.push(u);
+    for (const u of diagnostics.unfiredRulings ?? []) unfiredOmissions.push(u);
+    for (const r of diagnostics.recoveredClauses ?? []) recoveredClauses.push({ doc: doc.key, ...r });
+    for (const r of diagnostics.renumbered ?? []) renumbered.push({ doc: doc.key, ...r });
+    identityRedirects += diagnostics.map?.identityRedirects ?? diagnostics.identityRedirects ?? 0;
+    identityUnstated += diagnostics.map?.identityUnstated ?? 0;
     for (const u of all) {
       const rel = unitRelPath(u);
       producible.add(rel);
@@ -894,18 +903,58 @@ function buildEdition(editionKey, opts) {
   if (unresolvedClauses.length) failures.push(unresolvedClauseError(editionKey, unresolvedClauses));
   const parityFailure = parityCheck(editionKey, stats.parity);
   if (parityFailure) failures.push(parityFailure);
-  // R51: an enumerated omission that omitted nothing is a ruling that has gone stale against the
-  // source. Asserted here rather than in the reader because the reader is also handed synthetic
+  // R51/R52/R60: a clauseref ruling that matched nothing is a ruling that has gone stale against
+  // the source. Asserted here rather than in the reader because the reader is also handed synthetic
   // fixture packages that carry a real document key and none of the real clauserefs.
   if (unfiredOmissions.length) {
     failures.push([
-      `build: ${unfiredOmissions.length} OMITTED_2022_CLAUSES entr(y/ies) matched no clauseref in the `
-      + 'package they name. Either the source changed and the ruling no longer applies, or the conref '
-      + 'was mistyped — and an omission of published Code must not stop applying unnoticed. '
-      + 'Re-establish what the map says before removing or correcting the entry.',
-      ...unfiredOmissions.map(u => `  ${u.volume}  ${u.clause}  ${u.conref}`),
+      `build: ${unfiredOmissions.length} clauseref ruling(s) matched nothing in the package they name. `
+      + 'Either the source changed and the ruling no longer applies, or the conref was mistyped — and a '
+      + 'ruling about published Code must not stop applying unnoticed. Re-establish what the map says '
+      + 'before removing or correcting the entry.',
+      ...unfiredOmissions.map(u => `  ${u.list ?? 'ruling'}  ${u.volume}  ${u.clause}  ${u.conref}`),
     ].join('\n'));
   }
+
+  // R55's precondition, asserted rather than assumed: every clauseref states BOTH of the identities
+  // the join compares. If a future release drops one, `idBad`/`titleBad` quietly degrade to "no
+  // guard" and every disagreement becomes a silent pass — the exact failure R51 exists to stop.
+  if (identityUnstated) {
+    failures.push(`build: ${identityUnstated} clauseref(s) state fewer than both of the identities the map `
+      + 'normally carries (<clause @id> and <title @id>). The identity join cannot judge those, and '
+      + 'treating them as confirmed would reopen the cross-publication defect R51 closed. Establish what '
+      + 'the source now emits before trusting this build.');
+  }
+
+  // R50, the same staleness discipline the clauseref rulings have: an exception that can never
+  // fire is a claim about the source that nobody is checking. Scoped to the documents this run
+  // selected, so a --volumes slice does not report the rest of the edition's exceptions as dead.
+  const selectedVolumes = new Set(docs.map(d => d.key));
+  const firedNulls = new Set(permittedNullClauses.map(({ exception }) => exception));
+  // An entry whose clause is OMITTED under R51/R56 has not gone stale — it has been SUPERSEDED,
+  // and by a ruling that cites the same evidence. Deleting it would throw away a measurement about
+  // a page that still does not exist; treating it as dead would fail every build. It is recorded
+  // as superseded and printed, which is the only outcome that is true.
+  const supersededNulls = new Set(NULL_WEB_URL_CLAUSES.filter(e => omittedClauses
+    .some(o => o.doc === e.volume && o.clause === e.clause)));
+  const deadNulls = NULL_WEB_URL_CLAUSES.filter(e => e.edition === String(editionKey)
+    && selectedVolumes.has(e.volume) && !firedNulls.has(e) && !supersededNulls.has(e));
+  if (deadNulls.length) {
+    failures.push([
+      `build: ${deadNulls.length} NULL_WEB_URL_CLAUSES entr(y/ies) exempted nothing. A permitted null `
+      + 'records that a clause the corpus PUBLISHES has no page; if that clause is no longer published, '
+      + 'or now resolves, the exception is asserting something untrue about the source and must be '
+      + 're-established or removed.',
+      ...deadNulls.map(e => `  ${e.volume}  ${e.clause}${e.state ? ` [${e.state}]` : ''}`),
+    ].join('\n'));
+  }
+
+  supersededNullClauses.push(...[...supersededNulls].map(e => ({ volume: e.volume, clause: e.clause, state: e.state ?? null })));
+
+  // R62: what the corpus publishes must match what its index says about the Code's own forward
+  // references. Run on the emitted records, so it reads the bytes rather than an intention.
+  const forwardFailure = forwardRefCheck(editionKey, records, renumbered);
+  if (forwardFailure) failures.push(forwardFailure);
 
   // A run that did not read every document must not rewrite the glossary from a partial view.
   // Applied AFTER the assertions, so a partial run is still told about a conflict it would have
@@ -949,6 +998,9 @@ function buildEdition(editionKey, opts) {
     permittedNullClauses,
     droppedCitations,
     omittedClauses,
+    recoveredClauses,
+    supersededNullClauses,
+    identityRedirects,
     stats: {
       ...stats,
       duplicates: resolved.duplicates,
@@ -1109,6 +1161,7 @@ export function report(built, io, opts) {
 
   out.push('', parityBlock(built));
   out.push(droppedCitationsBlock(built));
+  out.push(recoveredClausesBlock(built));
   out.push(omittedClausesBlock(built));
   out.push(unresolvedBlock(built));
   out.push(...permittedNullBlock(built));
@@ -1189,6 +1242,82 @@ function droppedCitationsBlock(built) {
 }
 
 /**
+ * R62 — reconcile the forward references the corpus actually publishes against the ones
+ * `index.mjs`'s SOURCE_FORWARD_REFS declares, so `corpus/{edition}/INDEX.md` cannot drift.
+ *
+ * A forward reference is a cross-reference in the base text naming the designation the NEXT
+ * edition gives its target. It is untracked in the source, so it cannot be recovered — the corpus
+ * reproduces what the Code prints, and the index says so. Nothing verified that list: a listed
+ * token that stopped appearing (one did, when R60/R51 changed which files ship) would have sent a
+ * reader to a file that is not there, and a NEW one would have appeared with no note at all.
+ *
+ * A token only counts when it is not ALSO a legitimate designation of something this edition
+ * publishes — `J4D6c` is the 2025 num of one table AND the 2022 num of a different one, and
+ * `S37C7a` is a table where the renumbered object is a figure. Those are read off the emitted
+ * bytes rather than assumed.
+ *
+ * @returns {?string} a failure naming both directions of the difference, or null.
+ */
+export function forwardRefCheck(editionKey, records, renumbered) {
+  const declared = SOURCE_FORWARD_REFS.get(editionKey);
+  if (!declared && !renumbered.length) return null;
+  const bodies = [...records].map(r => String(r.content ?? '').split('\n---\n').slice(1).join('\n---\n'));
+  const legitimate = new Set();
+  for (const r of records) {
+    const c = String(r.content ?? '');
+    const head = c.split('\n---', 1)[0];
+    const id = /^clause: (.*)$/m.exec(head)?.[1]?.trim();
+    if (id) legitimate.add(id);
+    for (const m of c.matchAll(/^### Table ([A-Za-z0-9.]+)/gm)) legitimate.add(m[1]);
+    for (const m of c.matchAll(/^!?\[Figure ([A-Za-z0-9.]+)/gm)) legitimate.add(m[1]);
+  }
+  const found = new Set();
+  for (const token of new Set(renumbered.map(r => r.accepted))) {
+    if (legitimate.has(token)) continue;
+    const re = new RegExp(`(^|[^A-Za-z0-9.])${escapeRe(token)}([^A-Za-z0-9]|$)`);
+    if (bodies.some(b => re.test(b))) found.add(token);
+  }
+  const listed = new Set((declared?.refs ?? []).map(([printed]) => printed));
+  const missing = [...listed].filter(t => !found.has(t)).sort(byCodepoint);
+  const extra = [...found].filter(t => !listed.has(t)).sort(byCodepoint);
+  if (!missing.length && !extra.length) return null;
+  return [
+    `build: SOURCE_FORWARD_REFS for edition ${editionKey} no longer describes the corpus. It is what `
+    + "corpus/{edition}/INDEX.md tells a reader about designations the Code prints from the NEXT "
+    + 'edition, so a stale entry sends them to a file that does not exist and a missing one leaves a '
+    + 'wrong-looking citation unexplained.',
+    ...(extra.length ? [`  UNLISTED, but present in the corpus: ${extra.join(', ')}`] : []),
+    ...(missing.length ? [`  LISTED, but no longer present: ${missing.join(', ')}`] : []),
+  ].join('\n');
+}
+
+/**
+ * R60: the clauses whose text came out of a SIBLING package.
+ *
+ * Printed unconditionally. The clause reads as any other in the corpus — same citation, same
+ * web_url — so the report is the only place that says its bytes did not come from this
+ * publication's own zip, and that is exactly the sort of thing a reader must not have to infer.
+ * `identityRedirects` rides here too: the join changing which file is published is the single
+ * most consequential thing this module does, and it should be visible at zero as well as at ten.
+ */
+function recoveredClausesBlock(built) {
+  const list = built.recoveredClauses ?? [];
+  const lines = ['', `RECOVERED CLAUSES — ${list.length} · same-package identity redirects — ${built.identityRedirects ?? 0}`];
+  if (!list.length) {
+    lines.push('  none — every clauseref resolved inside its own package');
+    return lines.join('\n');
+  }
+  lines.push('  The map named a clause this package does not contain, and a ruling in',
+    '  RECOVERED_2022_CLAUSES supplied it from the sibling package that does — permitted ONLY where',
+    "  the direction was proved from content AND from the published Code on both sides. The quoted",
+    '  sentence below is what ncc.abcb.gov.au publishes for that clause in THIS volume.');
+  for (const r of list) {
+    lines.push(`  ${pad(r.doc, 20)}${pad(r.clause, 8)}<- ${r.from}`, ...wrap(`"${r.published}"`, '    '));
+  }
+  return lines.join('\n');
+}
+
+/**
  * R51: the clauses this edition's packages cannot publish, and why.
  *
  * Printed unconditionally, including the zero, for the same reason as DROPPED CITATIONS: a block
@@ -1218,10 +1347,20 @@ function omittedClausesBlock(built) {
   return lines.join('\n');
 }
 
-/** R50: clause nulls that were ruled on rather than left to fail. */
+/** R50: clause nulls that were ruled on rather than left to fail, and rulings a later one retired. */
 function permittedNullBlock(built) {
   const list = built.permittedNullClauses ?? [];
-  if (!list.length) return [];
+  const superseded = built.supersededNullClauses ?? [];
+  if (!list.length && !superseded.length) return [];
+  if (!list.length) {
+    return [['', 'PERMITTED null web_url — 0 fired · ' + superseded.length + ' superseded',
+      '  A permitted null records that a clause the corpus PUBLISHES has no page. These clauses are',
+      '  no longer published — an omission ruling retired them — so the exception is kept with its',
+      '  measurement rather than deleted, and cannot fire. An entry that is neither fired nor',
+      '  superseded FAILS the build.',
+      ...superseded.map(e => '  ' + pad(e.volume, 20) + e.clause + (e.state ? ' [' + e.state + ']' : '')),
+    ].join('\n')];
+  }
   const lines = ['', `PERMITTED null web_url — ${list.length} clause unit${list.length === 1 ? '' : 's'} `
     + '(NULL_WEB_URL_CLAUSES; every other clause null FAILS the build)'];
   for (const { doc, unit, exception } of list) {

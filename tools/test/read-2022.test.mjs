@@ -18,11 +18,16 @@ import {
   baseViewKeeps,
   readPackage2022,
   OMITTED_2022_CLAUSES,
+  RECOVERED_2022_CLAUSES,
+  STALE_ROOT_ID_CLAUSEREFS,
   omittedClause,
+  recoveredClause,
+  staleRootId,
 } from '../src/read-2022.mjs';
 import { normalizeUnit } from '../src/normalize.mjs';
 
 const VOL1 = DOCUMENTS_2022[0];
+const VOL3 = DOCUMENTS_2022.find(d => d.key === 'volume-three');
 const HP = DOCUMENTS_2022[3];
 const XT = 'xmlns:xt="urn:xpressauthor:trackchanges"';
 const parse = s => new DOMParser({ onError: () => {} }).parseFromString(s, 'text/xml');
@@ -164,8 +169,12 @@ const clause = (sptc, title, body, extra = '') =>
   + `<sptc>${sptc}</sptc><title>${title}</title><archive-num/>`
   + `<subclause outputclass="subclause"><title>SubClause</title><num>1</num><p>${body}</p></subclause></clause>`;
 
-const clauseref = (conref, id = '_stub') =>
-  `<clauseref outputclass="clausref-ncc"><clause conref="${conref}" id="${id}" outputclass="ncc-clause">`
+// States NO identity by default. The real packages always state both (build.mjs asserts it via
+// `identityUnstated`), but a fixture spelling a WRONG one would be claiming its clauseref points
+// somewhere else — which R51/R52 now correctly refuse. The tests that exercise the join state both
+// identities properly, via `identifiedRef` further down.
+const clauseref = (conref, id = null) =>
+  `<clauseref outputclass="clausref-ncc"><clause conref="${conref}"${id ? ` id="${id}"` : ''} outputclass="ncc-clause">`
   + '<sptc/><title/><archive-num/></clause></clauseref>';
 
 /** A minimal but real-shaped 2022 package, materialised on disk. */
@@ -944,26 +953,48 @@ const identifiedClause = (sptc, title, body, clauseId, titleId) =>
   + `<sptc>${sptc}</sptc><title id="${titleId}">${title}</title><archive-num/>`
   + `<subclause outputclass="subclause"><title>SubClause</title><num>1</num><p>${body}</p></subclause></clause>`;
 
-test('R51: both stated identities disagree and the package lacks the target — the clause is OMITTED', () => {
-  // The measured defect, in miniature: the map names B1D1 and states an identity the package's
-  // file of that name does not carry, because that file is a DIFFERENT publication's B1D1.
-  // Emitting it is how corpus/2022/volume-one/b1d1 came to publish Volume Three's cold-water
-  // provisions under "NCC 2022 V1 B1D1".
+test('R56: both stated identities disagree and NOTHING holds the target — the clause is OMITTED', () => {
+  // The measured defect, in miniature: the map names C1O1 and states an identity the package's
+  // file of that name does not carry, because that file is Volume ONE's fire Objective. Emitting
+  // it is how corpus/2022/volume-three/c1o1 came to publish it under "NCC 2022 V3 C1O1", linked to
+  // the Plumbing Code's Part C1 page. No package holds the wanted id, so there is nothing to
+  // recover and omission is the only honest answer.
   withFixture(dir => {
     const diagnostics = {};
-    const units = readPackage2022(dir, VOL1, { diagnostics });
-    assert.equal(units.filter(u => u.id === 'B1D1').length, 0, 'the wrong-publication clause is not emitted');
+    const units = readPackage2022(dir, VOL3, { diagnostics });
+    assert.equal(units.filter(u => u.id === 'C1O1').length, 0, 'the wrong-publication clause is not emitted');
     assert.deepEqual(diagnostics.omittedClauses.map(o => [o.clause, o.reason]),
-      [['B1D1', 'map-identity-unresolved']]);
-    assert.match(diagnostics.omittedClauses[0].evidence, /Volume THREE/,
+      [['C1O1', 'map-identity-unresolved']]);
+    assert.match(diagnostics.omittedClauses[0].evidence, /sanitary plumbing installation/,
       'the ruling travels with the omission, so the report can print why');
-    assert.equal(diagnostics.unfiredOmissions.length, 2,
-      'the other two volume-one rulings did not fire here — RECORDED, not thrown, for the build to assert');
+    assert.ok(diagnostics.unfiredRulings.length > 0,
+      'volume-three\'s other rulings did not fire here — RECORDED, not thrown, for the build to assert');
   }, {
-    'XMLs/FlattenedFile.xml': mapWith(identifiedRef('B1D1-deemed-to-satisfy-provisions.xml', '_wanted', '_wantedTitle')),
-    'XMLs/B1D1-deemed-to-satisfy-provisions.xml':
-      identifiedClause('B1D1', 'Deemed-to-Satisfy Provisions', 'Another publication text.', '_other', '_otherTitle'),
+    'XMLs/FlattenedFile.xml': mapWith(identifiedRef('C1O1-objective.xml', '_wanted', '_wantedTitle')),
+    'XMLs/C1O1-objective.xml':
+      identifiedClause('C1O1', 'Objective', 'Another publication text.', '_other', '_otherTitle'),
   });
+});
+
+test('R60: a recovery reads ONE file from the sibling package the ruling names', { skip: !have }, () => {
+  // R56 said do not read across packages, because a shared UUID is an inference. R60 lifts that for
+  // four clauses where the inference was removed: the direction was proved from content AND from
+  // ncc.abcb.gov.au on both sides, and the correct text sits in this repo at exactly the id the map
+  // names. Deemed-to-Satisfy provisions are substantive law, and omitting them while the text is on
+  // disk is a worse answer than reading one file under a ruling that quotes the published sentence.
+  const diagnostics = {};
+  const units = readPackage2022('.cache/extracted/ncc-2022-volume-one', VOL1, { diagnostics });
+  const b1d1 = units.find(u => u.kind === 'clause' && u.id === 'B1D1' && !u.state);
+  assert.ok(b1d1, 'V1 B1D1 is published again');
+  const { bodyMd } = normalizeUnit(b1d1, { year: '2022', cdnKey: 'volume1' });
+  assert.match(bodyMd, /Performance Requirements B1P1 to B1P4 are satisfied by complying with B1D2 to B1D6/,
+    'the published V1 B1D1, fetched from the page this file\'s own web_url names');
+  assert.doesNotMatch(bodyMd, /cold water service/, 'and not the Volume Three clause that shipped in this zip');
+  assert.deepEqual(diagnostics.recoveredClauses.map(r => [r.clause, r.from]),
+    [['B1D1', 'volume-three'], ['C2D1', 'volume-three']]);
+  for (const r of diagnostics.recoveredClauses) {
+    assert.ok(r.published.length > 40, 'the ruling carries the sentence ncc.abcb.gov.au publishes');
+  }
 });
 
 test('R51: a disagreement that has NOT been ruled on fails the read', () => {
@@ -1010,7 +1041,21 @@ test('R51: a title-only disagreement fails rather than choosing a signal', () =>
   });
 });
 
-test('R51: a stale ROOT id alone does not overturn the conref and the title — the B3F1 shape', () => {
+test('R52: an UNENUMERATED stale root id fails — a shared title @id is not proof of identity', () => {
+  // Measured: 33 title @ids are reused across different filenames in these packages, including
+  // same-package pairs whose designations differ (F1D12/F3D2, F1V1/F3V1, HP's B4P4 against the
+  // others' B4P3). So a wrong file that happens to share the wanted title id presents in exactly
+  // the B3F1 shape below. Tolerating that shape as a CLASS would publish it without a word; one
+  // enumerated ruling with its evidence costs nothing and closes the hole.
+  withFixture(dir => {
+    assert.throws(() => readPackage2022(dir, VOL1), /A shared title @id is NOT proof of identity/);
+  }, {
+    'XMLs/FlattenedFile.xml': mapWith(identifiedRef('A1G1-scope.xml', '_wanted', '_sharedTitle')),
+    'XMLs/A1G1-scope.xml': identifiedClause('A1G1', 'Scope', 'Body.', '_actual', '_sharedTitle'),
+  });
+});
+
+test('R52: the enumerated stale root id keeps the conref join — the B3F1 shape', () => {
   // volume-three's B3F1 clauseref carries the SAME <clause @id> as the B2F1 clauseref two
   // subtopics earlier — an authoring copy-paste — while its <title @id> and its conref both
   // correctly name B3F1. Following the @id alone would publish heated-water text as B3F1, or
@@ -1018,7 +1063,7 @@ test('R51: a stale ROOT id alone does not overturn the conref and the title — 
   // that is currently correct, which is why the join needs BOTH identities to disagree.
   withFixture(dir => {
     const diagnostics = {};
-    const units = readPackage2022(dir, VOL1, { diagnostics });
+    const units = readPackage2022(dir, VOL3, { diagnostics });
     const emitted = units.find(u => u.id === 'B3F1');
     assert.ok(emitted, 'B3F1 is still published');
     const { bodyMd } = normalizeUnit(emitted, { year: '2022', cdnKey: 'volume1' });
@@ -1028,10 +1073,10 @@ test('R51: a stale ROOT id alone does not overturn the conref and the title — 
   }, {
     'XMLs/FlattenedFile.xml': mapWith(
       identifiedRef('B2F1-heated-water.xml', '_shared', '_b2f1Title')
-      + identifiedRef('B3F1-non-drinking-water.xml', '_shared', '_b3f1Title')),
+      + identifiedRef('B3F1-non-drinking-water-supply.xml', '_shared', '_b3f1Title')),
     'XMLs/B2F1-heated-water.xml':
       identifiedClause('B2F1', 'Heated water supply', 'Heated water text.', '_shared', '_b2f1Title'),
-    'XMLs/B3F1-non-drinking-water.xml':
+    'XMLs/B3F1-non-drinking-water-supply.xml':
       identifiedClause('B3F1', 'Non-drinking water supply', 'Fixtures provided with non-drinking water.', '_b3f1', '_b3f1Title'),
   });
 });
@@ -1048,10 +1093,24 @@ test('R51: every ruling names a volume, a conref and evidence a reader can check
     assert.ok(!seen.has(key), `${key} is ruled on twice`);
     seen.add(key);
   }
-  // Keyed on volume AND conref: the same filename is omitted from volume-one and volume-three for
+  // Keyed on volume AND conref: the same filename is ruled on in volume-one and volume-three for
   // opposite halves of one swap, so a key on either alone would collapse the two rulings into one.
-  assert.equal(omittedClause('volume-one', 'B1D1-deemed-to-satisfy-provisions.xml').reason, 'map-identity-unresolved');
-  assert.ok(omittedClause('volume-three', 'B1D1-deemed-to-satisfy-provisions.xml'));
-  assert.equal(omittedClause('volume-two', 'B1D1-deemed-to-satisfy-provisions.xml'), null);
+  assert.equal(recoveredClause('volume-one', 'B1D1-deemed-to-satisfy-provisions.xml').from, 'volume-three');
+  assert.equal(recoveredClause('volume-three', 'B1D1-deemed-to-satisfy-provisions.xml').from, 'volume-one');
+  assert.equal(recoveredClause('volume-two', 'B1D1-deemed-to-satisfy-provisions.xml'), null);
   assert.equal(omittedClause('volume-one', 'A1G1-scope.xml'), null);
+
+  // One clauseref, one disposition — enforced at import, asserted here so the property is visible.
+  for (const r of RECOVERED_2022_CLAUSES) {
+    assert.equal(omittedClause(r.volume, r.conref), null, 'a clauseref is recovered or omitted, never both');
+    assert.notEqual(r.from, r.volume, 'a recovery reads a SIBLING package');
+    assert.ok(volumes.has(r.from), 'the sibling is a document of this edition');
+    assert.ok(r.published.length > 40, 'the ruling quotes the sentence ncc.abcb.gov.au publishes');
+    assert.ok(/^_[0-9a-f-]{36}$/.test(r.wantedId), 'the ruling records the identity the map states');
+  }
+  for (const e of STALE_ROOT_ID_CLAUSEREFS) {
+    assert.ok(e.evidence.length >= 80, 'evidence is a measurement, not a label');
+    assert.equal(staleRootId(e.volume, e.conref), e);
+    assert.equal(staleRootId('volume-two', e.conref), null, 'the key is volume + conref');
+  }
 });

@@ -224,18 +224,22 @@ test('the edition index states the clauses the source cannot supply', () => {
   const out = buildIndexes(new Map([['2022', [A5G7_2022]]]), {
     tree: TREE,
     omissions: new Map([['2022', [
-      { doc: 'volume-three', clause: 'C1O1', reason: 'map-identity-unresolved' },
+      { doc: 'volume-three', clause: 'C1O1', reason: 'map-identity-unresolved', variations: ['TAS'] },
       { doc: 'volume-one', clause: 'D3D31', reason: 'clause-is-2025-only' },
     ]]]),
   });
   const idx = out.find(o => o.relPath === '2022/INDEX.md').content;
-  assert.match(idx, /Not published here: 2 clauses/);
+  assert.match(idx, /Not published here: 2 clauses — 3 files counting jurisdiction variations/);
   assert.match(idx, /^ {2}volume-one D3D31 — clause-is-2025-only$/m);
-  assert.match(idx, /^ {2}volume-three C1O1 — map-identity-unresolved$/m);
+
   // Document order is not the reader's order: the list sorts, so the index is a pure function of
   // its input and CI's byte-diff cannot fail on the order two documents happened to be read in.
   assert.ok(idx.indexOf('volume-one D3D31') < idx.indexOf('volume-three C1O1'));
-  assert.match(idx, /Cite\nthe live Code for these; nothing here stands in for them\./);
+  // A state variation is emitted FROM its national clause, so omitting the clause takes the
+  // variation with it. Named here because it is the only place "C1O1 [TAS]" is discoverable at all.
+  assert.match(idx, /^ {2}volume-three C1O1 \(and its TAS variation\) — map-identity-unresolved$/m);
+  // The intro is hard-wrapped as one note, so no sentence breaks mid-clause across a line.
+  assert.match(idx, /Cite the live Code for these; nothing here stands in for them\./);
 });
 
 test('an edition with nothing omitted carries no gap boilerplate', () => {
@@ -252,12 +256,12 @@ test('the 2022 index records the forward references its source prints', () => {
   // and has to give the reader the designation this edition actually uses.
   const idx = buildIndexes(new Map([['2022', [A5G7_2022]]]), { tree: TREE })
     .find(o => o.relPath === '2022/INDEX.md').content;
-  assert.match(idx, /Five cross-references in the NCC 2022 base text/);
+  assert.match(idx, /Six cross-references in the NCC 2022 base text/);
   assert.match(idx, /prints F1D11 — this edition's clause is F1D8 —/);
-  for (const t of ['B2P12', 'B3P8', 'B6D7', 'B7P5']) assert.match(idx, new RegExp(`prints ${t} — `));
-  // B1P7 was a sixth until R51 omitted the only file it appeared in. Listing it would send a
-  // reader to a file that is not there.
-  assert.doesNotMatch(idx, /prints B1P7/);
+  for (const t of ['B1P7', 'B2P12', 'B3P8', 'B6D7', 'B7P5']) assert.match(idx, new RegExp(`prints ${t} — `));
+  // B1P7 vanished when R51 omitted the only file it appeared in and came back when R60 recovered
+  // volume-three/b1d1. forwardRefCheck in build.mjs is what noticed; a hand-kept list did not.
+  assert.match(idx, /prints B1P7 — this edition's clause is B1P6 — volume-three/);
 });
 
 test('omissions must be a Map — a plain object has no guaranteed key order', () => {

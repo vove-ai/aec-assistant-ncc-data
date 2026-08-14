@@ -385,32 +385,9 @@ const XML_PARSER = { onError: () => {} };   // @xmldom/xmldom 0.9 rejects the ol
  * A disagreement that is NOT on this list still fails the build, exactly as R50 works.
  */
 export const OMITTED_2022_CLAUSES = [
-  {
-    volume: 'volume-one', conref: 'B1D1-deemed-to-satisfy-provisions.xml', clause: 'B1D1',
-    reason: 'map-identity-unresolved',
-    evidence:
-      "volume-one's map wants clause @id _00602d3a…/title @id _50d46460…; the volume-one package's "
-      + 'file of that name is a different clause (@id _36029f3d…) carrying Volume THREE\'s cold-water '
-      + 'B1D1 — byte-identical to corpus/2025/volume-three/b1d1. The wanted id is in volume-two and '
-      + 'volume-three, not here. Each package is its own publication, so it is not read across.',
-  },
-  {
-    volume: 'volume-one', conref: 'C2D1-deemed-to-satisfy-provisions.xml', clause: 'C2D1',
-    reason: 'map-identity-unresolved',
-    evidence:
-      "volume-one's map wants @id _7a8c0fbb…; the file of that name here is @id _e75ed91c… and "
-      + 'publishes Volume Three\'s C2D1 ("Performance Requirements C2P1 to C2P7 … C2D2 to C2D5"). '
-      + 'The published NCC 2022 Volume One C2D1 reads "C1P1 to C1P9 … C2D2 to C2D15, C3D2 to C3D15 '
-      + 'and C4D2 to C4D17" (fetched from ncc.abcb.gov.au 2026-08-14). Wanted id is in volume-three only.',
-  },
-  {
-    volume: 'volume-three', conref: 'B1D1-deemed-to-satisfy-provisions.xml', clause: 'B1D1',
-    reason: 'map-identity-unresolved',
-    evidence:
-      "volume-three's map wants @id _36029f3d…; the file of that name here is @id _00602d3a… and "
-      + "publishes Volume One's structural B1D1. The wanted id is in volume-one and "
-      + 'housing-provisions. This and the volume-one entry above are the two halves of one swap.',
-  },
+
+
+
   {
     volume: 'volume-three', conref: 'C1O1-objective.xml', clause: 'C1O1',
     reason: 'map-identity-unresolved',
@@ -420,14 +397,7 @@ export const OMITTED_2022_CLAUSES = [
       + 'a fire in a building"). The published NCC 2022 Volume Three C1O1 reads "…due to the failure '
       + 'of a sanitary plumbing installation" (fetched from the file\'s own web_url, 2026-08-14).',
   },
-  {
-    volume: 'volume-three', conref: 'C2D1-deemed-to-satisfy-provisions.xml', clause: 'C2D1',
-    reason: 'map-identity-unresolved',
-    evidence:
-      "volume-three's map wants @id _e75ed91c…, which is in volume-one, volume-two and "
-      + "housing-provisions. The file of that name here publishes Volume One's fire-resistance C2D1, "
-      + 'confirmed verbatim against ncc.abcb.gov.au 2026-08-14.',
-  },
+
   {
     volume: 'volume-three', conref: 'C3D1-deemed-to-satisfy-provisions.xml', clause: 'C3D1',
     reason: 'map-identity-unresolved',
@@ -516,6 +486,137 @@ export function omittedClause(volume, conref) {
   return OMITTED_2022_CLAUSES.find(e => e.volume === volume && e.conref === conref) ?? null;
 }
 
+/**
+ * R60 — cross-package identity resolution, as an enumerated exception and never as a rule.
+ *
+ * R56 said: do not read across packages, because a shared UUID is an inference. That holds as the
+ * default and still governs the five clauses in `OMITTED_2022_CLAUSES` whose identity resolves
+ * nowhere. These four are different: the inference has been removed. For each, the direction was
+ * proved from the CONTENT (both candidate files' base views are identical across every package
+ * that holds them, and the two texts are plainly a structural clause and a plumbing clause) and
+ * from the PUBLISHED CODE on both sides — every `published` string below was fetched from
+ * ncc.abcb.gov.au on 2026-08-14 from the page the emitted file's own `web_url` names.
+ *
+ * The ABCB shipped these two files in each other's zips. The `@id` its own map states is the
+ * truth, the published Code corroborates it, and the text is in this repository at exactly that
+ * id. Leaving substantive Deemed-to-Satisfy provisions out when the correct text is on disk would
+ * be a worse answer than reading one file from a sibling package under a ruling.
+ *
+ * `from` names the sibling to read. Where several packages hold the identity their base views are
+ * byte-identical (measured), so the choice cannot change the output — but it is stated rather than
+ * derived, so nobody has to re-derive it, and `siblingClause` re-checks the identity on load.
+ */
+export const RECOVERED_2022_CLAUSES = [
+  {
+    volume: 'volume-one', conref: 'B1D1-deemed-to-satisfy-provisions.xml', clause: 'B1D1',
+    from: 'volume-three', wantedId: '_00602d3a-be90-4fa0-9215-2a79f954937c',
+    published:
+      'Where a Deemed-to-Satisfy Solution is proposed, Performance Requirements B1P1 to B1P4 are '
+      + 'satisfied by complying with B1D2 to B1D6.',
+    evidence:
+      'ncc.abcb.gov.au/editions/ncc-2022/adopted/volume-one/b-structure/part-b1-structural-provisions '
+      + 'publishes the sentence above as V1 B1D1(1). The volume-one package does not contain it — its '
+      + 'file of that name is the cold-water clause (archive-num 2019: B1.1). The wanted @id is held by '
+      + 'volume-two and volume-three, whose base views are identical, and carries archive-num 2019: B1.0.',
+  },
+  {
+    volume: 'volume-one', conref: 'C2D1-deemed-to-satisfy-provisions.xml', clause: 'C2D1',
+    from: 'volume-three', wantedId: '_7a8c0fbb-653f-4b21-8668-b085635216de',
+    published:
+      'Where a Deemed-to-Satisfy Solution is proposed, Performance Requirements C1P1 to C1P9 are '
+      + 'satisfied by complying with— C2D2 to C2D15, C3D2 to C3D15 and C4D2 to C4D17; and in a building '
+      + 'containing an atrium, Part G3; and for a building containing an occupiable outdoor area, Part '
+      + 'G6; and for additional requirements for Class 9b buildings, Part I1; and for farm sheds, Part I3.',
+    evidence:
+      'ncc.abcb.gov.au/editions/ncc-2022/adopted/volume-one/c-fire-resistance/part-c2-fire-resistance-and-stability '
+      + 'publishes the sentence above as V1 C2D1(1). The volume-one package holds the sanitary-drainage '
+      + 'clause under that filename instead (2019: C2.1). The wanted @id is in volume-three only, with '
+      + 'archive-num 2019: C1.0, and no clause-variation to resolve.',
+  },
+  {
+    volume: 'volume-three', conref: 'B1D1-deemed-to-satisfy-provisions.xml', clause: 'B1D1',
+    from: 'volume-one', wantedId: '_36029f3d-0e57-48dc-9219-b416cd90fb52',
+    published:
+      'Performance Requirement B1P1 is satisfied if the cold water service is connected to— the '
+      + 'Network Utility Operator’s drinking water supply; or an alternative drinking water supply.',
+    evidence:
+      'ncc.abcb.gov.au/editions/ncc-2022/adopted/volume-three/b-water-services/part-b1-cold-water-services '
+      + 'publishes the sentence above as V3 B1D1(1). The volume-three package holds the structural clause '
+      + 'under that filename (2019: B1.0). The wanted @id is held by volume-one and housing-provisions, '
+      + 'base views identical, archive-num 2019: B1.1. NOTE: the recovered text reads "B1P2 to B1P7" '
+      + 'where the published page reads "B1P2 to B1P6" — the untracked forward-reference class, recorded '
+      + 'in SOURCE_FORWARD_REFS rather than rewritten.',
+  },
+  {
+    volume: 'volume-three', conref: 'C2D1-deemed-to-satisfy-provisions.xml', clause: 'C2D1',
+    from: 'volume-one', wantedId: '_e75ed91c-c566-49bb-ab5d-dc0aebf0819b',
+    published:
+      'Where a Deemed-to-Satisfy Solution is proposed, Performance Requirements C2P1 to C2P7 are '
+      + 'satisfied by complying with C2D2 to C2D5.',
+    evidence:
+      'ncc.abcb.gov.au/editions/ncc-2022/adopted/volume-three/c-sanitary-plumbing-and-drainage-systems/'
+      + 'part-c2-sanitary-drainage-systems publishes the sentence above as V3 C2D1(1). The volume-three '
+      + 'package holds Volume One’s fire-resistance C2D1 under that filename. The wanted @id is held '
+      + 'by volume-one, volume-two and housing-provisions, base views identical, archive-num 2019: C2.1.',
+  },
+];
+
+/**
+ * R52 — a clauseref whose `<clause @id>` is stale while its conref and `<title @id>` agree.
+ *
+ * Enumerated rather than tolerated as a class, because `<title @id>` is not an identity: 33 title
+ * ids are shared across different filenames in these packages, including same-package pairs whose
+ * designations differ. A wrong file that happened to share the wanted title id would present in
+ * exactly this shape and publish without a word.
+ */
+export const STALE_ROOT_ID_CLAUSEREFS = [
+  {
+    volume: 'volume-three', conref: 'B3F1-non-drinking-water-supply.xml', clause: 'B3F1',
+    evidence:
+      'The B3F1 clauseref carries clause @id _023df21f…, which is the SAME id the B2F1 clauseref two '
+      + 'subtopics earlier carries — an authoring copy-paste, not a different target. Its <title @id> '
+      + '_db29932b… and its conref both name B3F1, and the emitted body ("Sanitary fixtures, sanitary '
+      + 'appliances and supply outlets provided with non-drinking water must be adequate") matches '
+      + 'corpus/2025/volume-three/b3f1 exactly. Following the @id would publish B2F1’s heated-water '
+      + 'text as B3F1, or — B2F1 being emitted first — drop B3F1 as a duplicate.',
+  },
+];
+
+const validateRulings = (list, name, extra = []) => {
+  for (const e of list) {
+    for (const k of ['volume', 'conref', 'clause', 'evidence', ...extra]) {
+      if (typeof e[k] === 'string' && e[k].trim()) continue;
+      throw new Error(`read-2022: ${name} entry ${JSON.stringify(e)} has no ${k}`);
+    }
+    if (e.evidence.length < 80) {
+      throw new Error(`read-2022: ${name} entry for ${e.clause} states ${e.evidence.length} characters of `
+        + 'evidence — a ruling about published Code needs a measurement a reader can check, not a label');
+    }
+  }
+};
+validateRulings(RECOVERED_2022_CLAUSES, 'RECOVERED_2022_CLAUSES', ['from', 'wantedId', 'published']);
+validateRulings(STALE_ROOT_ID_CLAUSEREFS, 'STALE_ROOT_ID_CLAUSEREFS');
+for (const e of RECOVERED_2022_CLAUSES) {
+  if (e.from === e.volume) {
+    throw new Error(`read-2022: RECOVERED_2022_CLAUSES entry for ${e.clause} names its own volume as the `
+      + 'source — a recovery reads a SIBLING package, and reading itself is what the join already does');
+  }
+  if (omittedClause(e.volume, e.conref)) {
+    throw new Error(`read-2022: ${e.volume}/${e.conref} is both recovered and omitted — one clauseref, `
+      + 'one disposition');
+  }
+}
+
+/** The R60 entry covering this clauseref, or null. */
+export function recoveredClause(volume, conref) {
+  return RECOVERED_2022_CLAUSES.find(e => e.volume === volume && e.conref === conref) ?? null;
+}
+
+/** The R52 entry covering this clauseref, or null. */
+export function staleRootId(volume, conref) {
+  return STALE_ROOT_ID_CLAUSEREFS.find(e => e.volume === volume && e.conref === conref) ?? null;
+}
+
 /** Filenames carry spaces, dots, commas, en-dashes and parentheses. Fold them all, and case, so
  *  the state-variation and figure joins compare designations rather than typography (§5.3.1, §6).
  *
@@ -572,7 +673,13 @@ export function readPackage2022(pkgDir, doc, { sections = null, diagnostics = nu
 
   const dg = {
     roots: {}, membership: { clauses: 0, unchanged: 0, renumbered: 0, only2022: 0, only2025: 0 },
-    map: { mapped: 0, insertOnly: 0, insertOnlyDuplicates: 0, mappedNo2022: 0, duplicateConrefs: 0 },
+    map: {
+      mapped: 0, insertOnly: 0, insertOnlyDuplicates: 0, mappedNo2022: 0, duplicateConrefs: 0,
+      // R55's precondition. A clauseref that states neither identity cannot be judged, and none
+      // does — but nothing enforced that until this counter, so a release that stopped emitting an
+      // attribute would turn every disagreement into a silent pass. build.mjs asserts it is 0.
+      identityUnstated: 0,
+    },
     clauseVariations: { del: 0, delText: 0, repl: 0, target2025: 0 },
     partVariations: { elements: 0, identities: 0 },
     figures: { distinct: 0, baseEmptyWrappers: 0 },
@@ -587,7 +694,10 @@ export function readPackage2022(pkgDir, doc, { sections = null, diagnostics = nu
     // R51. `omittedClauses` is what this run actually left out, one record per clauseref, each
     // carrying the ruling's evidence; `identityRedirects` counts the clauserefs whose stated
     // identity resolved to a DIFFERENT file in this package and was followed there.
-    omittedClauses: [], identityRedirects: 0,
+    omittedClauses: [], identityRedirects: 0, renumbered: [],
+    // R60. One record per clause read from a sibling package, so the report and the edition index
+    // can name a provision whose text did not come out of this publication's own zip.
+    recoveredClauses: [],
   };
 
   /* -- pass 1: one parse per file, facts kept, DOM discarded ---------------- */
@@ -624,6 +734,14 @@ export function readPackage2022(pkgDir, doc, { sections = null, diagnostics = nu
       baseTerm: collapse(childEl(root, 'glossterm')?.textContent ?? ''),
     };
     facts.set(file, f);
+    // R62 — every designation the 2025 draft renumbers. A cross-reference in the base text that
+    // names one of these is the ABCB's own forward reference: it is untracked in the source, so no
+    // base-view transform can recover the 2022 string. build.mjs reconciles what actually SURVIVES
+    // into the corpus against index.mjs's SOURCE_FORWARD_REFS, so a sixth cannot appear unnoticed
+    // and a listed one that stops appearing cannot rot.
+    if (f.baseId && f.acceptedId && f.baseId !== f.acceptedId && /^[A-Za-z0-9.]+$/.test(f.acceptedId)) {
+      dg.renumbered.push({ base: f.baseId, accepted: f.acceptedId, file });
+    }
 
     if (root.nodeName === 'clause') {
       const m = dg.membership;
@@ -926,6 +1044,8 @@ export function readPackage2022(pkgDir, doc, { sections = null, diagnostics = nu
   // R51: which enumerated omissions this read actually used. An entry that fires nothing is a
   // ruling that has gone stale against the source, and is a build failure — see the check below.
   const omissionsFired = new Set();
+  const recoveriesFired = new Set();
+  const staleFired = new Set();
   const seenGlossaryIds = new Set();
   const categoryByTerm = new Map();
   let glossaryCtx = null;
@@ -973,6 +1093,62 @@ export function readPackage2022(pkgDir, doc, { sections = null, diagnostics = nu
       ...pickCtx(ctx),
       node: root,
     });
+  }
+
+  /**
+   * The jurisdictions whose variations are declared ON this clause file. A state variation is
+   * emitted from the national clause, so omitting that clause removes the variations with it —
+   * and a reader looking for "E1D1 [TAS]" would otherwise find no trace of why it is gone.
+   */
+  function variationStatesOf(file) {
+    const root = load(file).documentElement;
+    const states = new Set();
+    for (let c = root.firstChild; c; c = c.nextSibling) {
+      if (c.nodeType === 1 && c.nodeName === 'clause-variation') {
+        const v = (attr(c, 'variation') ?? '').toUpperCase();
+        if (v) states.add(v);
+      }
+    }
+    return [...states].sort(byCodepoint);
+  }
+
+  /**
+   * R60 — load a recovered clause from the sibling package the ruling names.
+   *
+   * Deliberately narrow. It parses ONE file, base-views it, and re-checks BOTH identities the map
+   * stated before handing the node back: the ruling says which package, and this says whether that
+   * package still agrees. It refuses a clause carrying a `<clause-variation>`, because resolving a
+   * state variation means resolving a sibling FILE, and doing that across packages would be the
+   * general cross-package read the ruling declined. Measured: all four recoveries carry none.
+   */
+  function siblingClause(recovery, wantId, wantTitleId, at) {
+    const sibling = DOCUMENTS_2022.find(d => d.key === recovery.from);
+    if (!sibling) failLoud(`R60 recovery for ${recovery.clause} names ${recovery.from}, not a document of this edition`, at);
+    const abs = path.join(path.dirname(pkgDir), sibling.pkg, 'XMLs', recovery.conref);
+    if (!fs.existsSync(abs)) {
+      failLoud(`R60 recovery for ${recovery.clause} expects ${recovery.from}/${recovery.conref}, which does not exist`, at);
+    }
+    const dom = new DOMParser(XML_PARSER).parseFromString(fs.readFileSync(abs, 'utf8'), 'text/xml');
+    const root = dom?.documentElement;
+    if (!root || root.nodeName !== 'clause') failLoud(`R60 recovery for ${recovery.clause}: ${abs} is not a clause`, at);
+    const gotId = attr(root, 'id');
+    const gotTitleId = attrOf(childEl(root, 'title'), 'id');
+    if (gotId !== wantId || (wantTitleId && gotTitleId !== wantTitleId)) {
+      failLoud(`R60 recovery for ${recovery.clause}: ${recovery.from}/${recovery.conref} is @id ${gotId} / `
+        + `title ${gotTitleId}, but the map wants ${wantId} / ${wantTitleId}. The sibling no longer holds the `
+        + 'clause the ruling was written against — re-establish it before trusting this build.', at);
+    }
+    if (gotId !== recovery.wantedId) {
+      failLoud(`R60 recovery for ${recovery.clause}: the ruling records wantedId ${recovery.wantedId} but the `
+        + `map asks for ${wantId} — the ruling and the source have diverged`, at);
+    }
+    if (childEl(root, 'clause-variation')) {
+      failLoud(`R60 recovery for ${recovery.clause} carries a <clause-variation>. Resolving one means resolving `
+        + 'a sibling FILE, and doing that across packages is the general cross-package read this ruling '
+        + 'declined. Establish where the variation target lives before recovering this clause.', at);
+    }
+    applyBaseView(dom);
+    return root;
   }
 
   /**
@@ -1254,13 +1430,21 @@ export function readPackage2022(pkgDir, doc, { sections = null, diagnostics = nu
          * `title-only` is the shape nothing in this corpus exhibits, so nothing is known about
          * it: it FAILS rather than guessing which signal to believe.
          *
-         * A clauseref that states only ONE of the two identities is treated as confirmed by the
-         * conref, because it is not claiming the other. Every clauseref in all four real packages
-         * states BOTH (measured: 0 of 2,061 missing either), so this arises only for a fixture
-         * that does not bother to spell them out.
+         * `root-only` is B3F1 and nothing else, and it is ENUMERATED rather than tolerated as a
+         * class. `<title @id>` is not a clause identity — 33 title ids are shared across different
+         * filenames, including same-package pairs with different designations (`F1D12`/`F3D2`,
+         * `F1V1`/`F3V1`, HP's `B4P4` against the other packages' `B4P3`) — so a wrong file that
+         * happens to share the wanted title id would present as root-only and publish silently.
+         * One ruling with its evidence closes that, at no cost to today's output.
+         *
+         * A clauseref that states only ONE of the two identities cannot be judged at all. None
+         * exists (measured: 0 of 2,061), and `identityUnstated` below is what keeps that true: if
+         * a future release stops emitting an attribute, every disagreement would otherwise become
+         * a silent pass and this whole check would evaporate without a word.
          */
         const wantId = attr(c, 'id');
         const wantTitleId = attrOf(childEl(c, 'title'), 'id');
+        if (!wantId || !wantTitleId) dg.map.identityUnstated++;
         const got = facts.get(file);
         const idBad = Boolean(wantId) && got.id !== wantId;
         const titleBad = Boolean(wantTitleId) && got.titleId !== wantTitleId;
@@ -1270,13 +1454,39 @@ export function readPackage2022(pkgDir, doc, { sections = null, diagnostics = nu
             + 'has this shape, so which identity to believe has never been established — establish it '
             + 'before this build is trusted.', path2);
         }
+        if (idBad && !titleBad) {
+          const stale = staleRootId(doc.key, conref);
+          if (!stale) {
+            failLoud(`clauseref conref ${JSON.stringify(conref)} states clause @id ${wantId} but the file is `
+              + `@id ${got.id}, while its title @id ${wantTitleId} matches. A shared title @id is NOT proof `
+              + 'of identity — 33 of them are reused across different filenames, some with different clause '
+              + 'designations — so this may be a wrong file that happens to share one. Establish which clause '
+              + 'the map means and add it to STALE_ROOT_ID_CLAUSEREFS with the evidence.', path2);
+          }
+          staleFired.add(`${doc.key}|${conref}`);
+        }
         if (idBad && titleBad) {
           // Both identities disagree: this file is not the target. Follow the identity if this
-          // package holds it; otherwise the clause is not publishable from this package.
+          // package holds it (R51); else recover it from the sibling package a ruling names (R60);
+          // else the clause is not publishable from this package (R56).
           const byId = clauseFileById.get(wantId);
+          const recovery = byId ? null : recoveredClause(doc.key, conref);
           if (byId && facts.get(byId).titleId === wantTitleId) {
             dg.identityRedirects++;
             file = byId;
+          } else if (recovery) {
+            // R60 — cross-package recovery, ONLY for an enumerated clause whose direction was
+            // proved from content AND from the published Code on both sides. Not a general rule:
+            // a shared UUID alone is an inference, and this corpus does not publish inferences.
+            const node = siblingClause(recovery, wantId, wantTitleId, path2);
+            recoveriesFired.add(`${doc.key}|${conref}`);
+            dg.recoveredClauses.push({
+              conref, clause: recovery.clause, from: recovery.from, published: recovery.published,
+            });
+            emittedClauseFiles.add(file);
+            if (!inScope(ctx)) continue;
+            emitClauseFile(file, ctx, { node });
+            continue;
           } else {
             const ruling = omittedClause(doc.key, conref);
             if (!ruling) {
@@ -1284,9 +1494,11 @@ export function readPackage2022(pkgDir, doc, { sections = null, diagnostics = nu
                 + `${wantTitleId}, but that file is @id ${got.id} / ${got.titleId} and no file in this package `
                 + 'carries the stated identity. The file named is a DIFFERENT clause, so emitting it would '
                 + "publish another publication's provisions under this one's citation. Establish which clause "
-                + 'the map means and add it to OMITTED_2022_CLAUSES with the evidence, or fix the join.', path2);
+                + 'the map means and add it to OMITTED_2022_CLAUSES with the evidence, or — if the text is in '
+                + 'a sibling package AND the published Code confirms the direction — to RECOVERED_2022_CLAUSES.', path2);
             }
-            dg.omittedClauses.push({ conref, clause: ruling.clause, reason: ruling.reason, evidence: ruling.evidence });
+            dg.omittedClauses.push({ conref, clause: ruling.clause, reason: ruling.reason,
+              evidence: ruling.evidence, variations: variationStatesOf(file) });
             omissionsFired.add(`${doc.key}|${conref}`);
             continue;
           }
@@ -1304,7 +1516,8 @@ export function readPackage2022(pkgDir, doc, { sections = null, diagnostics = nu
             failLoud(`clauseref conref ${JSON.stringify(conref)} resolved cleanly but is listed in `
               + `OMITTED_2022_CLAUSES as ${only2025.reason} — the ruling no longer describes the source`, path2);
           }
-          dg.omittedClauses.push({ conref, clause: only2025.clause, reason: only2025.reason, evidence: only2025.evidence });
+          dg.omittedClauses.push({ conref, clause: only2025.clause, reason: only2025.reason,
+            evidence: only2025.evidence, variations: variationStatesOf(file) });
           omissionsFired.add(`${doc.key}|${conref}`);
           continue;
         }
@@ -1450,6 +1663,15 @@ export function readPackage2022(pkgDir, doc, { sections = null, diagnostics = nu
    * fixture package in the test suite carries a real document key and none of the real clauserefs,
    * so a throw here would fail on synthetic input that is not claiming to be the publication. The
    * build only ever reads the real packages. */
+  dg.unfiredRulings = [
+    ...unfired(OMITTED_2022_CLAUSES, 'OMITTED_2022_CLAUSES', omissionsFired),
+    ...unfired(RECOVERED_2022_CLAUSES, 'RECOVERED_2022_CLAUSES', recoveriesFired),
+    ...unfired(STALE_ROOT_ID_CLAUSEREFS, 'STALE_ROOT_ID_CLAUSEREFS', staleFired),
+  ];
+  function unfired(list, name, fired) {
+    return list.filter(e => e.volume === doc.key && !fired.has(`${doc.key}|${e.conref}`))
+      .map(e => ({ list: name, volume: e.volume, clause: e.clause, conref: e.conref }));
+  }
   dg.unfiredOmissions = OMITTED_2022_CLAUSES
     .filter(e => e.volume === doc.key && !omissionsFired.has(`${doc.key}|${e.conref}`))
     .map(e => ({ volume: e.volume, clause: e.clause, conref: e.conref }));

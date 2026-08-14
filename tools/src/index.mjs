@@ -55,21 +55,25 @@ const SEAM = '_Not yet determined — measure this edition before stating an ame
  * puts an invention where law belongs.
  *
  * The 2022 entry is Task 14's measurement. NCC 2022's packages are dual-state editorial files, and
- * in five places the base text carries a cross-reference whose designation was updated to the NCC
+ * in six places the base text carries a cross-reference whose designation was updated to the NCC
  * 2025 numbering WITHOUT a tracked change, so no base-view transform can recover the 2022 string —
  * it is not in the source. The 2022 form of each was read off the renumbering the target file
  * records in its own `<num>`/`<sptc>` (e.g. base `F1D8`, accepted `F1D11`).
  *
- * Re-measured after R51: a sixth, `B1P7`, existed only inside `volume-one/b1d1`, which is one of
- * the omitted clauses. Listing it would have sent a reader to a file that is not there.
+ * This list is NOT maintained by hand. `forwardRefCheck` in build.mjs reconciles it against the
+ * designations that actually survive into the emitted bytes and FAILS the build on a difference in
+ * either direction. It has already earned that: `B1P7` was removed by hand when R51 omitted the
+ * only file it appeared in, and came back when R60 recovered `volume-three/b1d1` — which the check
+ * caught and a hand-kept list did not.
  */
 export const SOURCE_FORWARD_REFS = new Map([
   ['2022', {
-    note: 'Five cross-references in the NCC 2022 base text name the NCC 2025 designation of their '
+    note: 'Six cross-references in the NCC 2022 base text name the NCC 2025 designation of their '
       + 'target. They are untracked in the source, so they are reproduced as the Code prints them '
       + 'rather than rewritten. The 2022 form of each is given here.',
     refs: [
       ['F1D11', 'F1D8', 'volume-one/f1d8-subfloor-ventilation.md — Table F1D8 column header'],
+      ['B1P7', 'B1P6', 'volume-three/b1d1-deemed-to-satisfy-provisions.md'],
       ['B2P12', 'B2P11', 'volume-three/b2d1-deemed-to-satisfy-provisions.md'],
       ['B3P8', 'B3P7', 'volume-three/b3d1-deemed-to-satisfy-provisions.md'],
       ['B6D7', 'B6D6', 'volume-three/b6d1-deemed-to-satisfy-provisions.md'],
@@ -190,13 +194,19 @@ function editionIndex(edition, entries, sourceRelease, amendments, omitted = [])
 function knownGaps(edition, omitted) {
   const out = [];
   if (omitted.length) {
-    out.push('',
-      `Not published here: ${omitted.length} clause${omitted.length === 1 ? '' : 's'} the source packages`,
-      'cannot supply — the map names a clause the package does not contain, or the clause is NCC 2025',
-      'only. Each is ruled on in OMITTED_2022_CLAUSES with its evidence and printed by the build. Cite',
-      'the live Code for these; nothing here stands in for them.');
+    // A state variation is emitted FROM its national clause, so omitting the clause removes the
+    // variations too. Counting only clauses would under-report the gap and leave "E1D1 [TAS]"
+    // discoverable nowhere at all — it is not a heading in this index, and it is not a file.
+    const files = omitted.reduce((n, o) => n + 1 + (o.variations?.length ?? 0), 0);
+    out.push('', ...wrapNote(
+      `Not published here: ${omitted.length} clause${omitted.length === 1 ? '' : 's'} — `
+      + `${files} file${files === 1 ? '' : 's'} counting jurisdiction variations — that the source `
+      + 'packages cannot supply: the map names a clause the package does not contain, or the clause '
+      + 'is NCC 2025 only. Each is ruled on in OMITTED_2022_CLAUSES with its evidence and printed by '
+      + 'the build. Cite the live Code for these; nothing here stands in for them.'));
     for (const o of [...omitted].sort((a, b) => byTuple([a.doc, a.clause], [b.doc, b.clause]))) {
-      out.push(`  ${o.doc} ${o.clause} — ${o.reason}`);
+      const vars = (o.variations ?? []).length ? ` (and its ${o.variations.join(', ')} variation${o.variations.length === 1 ? '' : 's'})` : '';
+      out.push(`  ${o.doc} ${o.clause}${vars} — ${o.reason}`);
     }
   }
   const fwd = SOURCE_FORWARD_REFS.get(edition);

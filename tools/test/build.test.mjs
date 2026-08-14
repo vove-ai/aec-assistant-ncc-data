@@ -17,10 +17,11 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import {
   EDITIONS, KNOWN_EDITIONS, NULL_WEB_URL_CLAUSES, PARITY, PARITY_UNAVAILABLE, inScope,
-  nullWebUrlException, parityCheck, parseArgs, planReconcile, report, resolveUniqueness,
+  forwardRefCheck, nullWebUrlException, parityCheck, parseArgs, planReconcile, report, resolveUniqueness,
   warningCategory, withholdPartialGlossary,
 } from '../src/build.mjs';
 import { DOCUMENTS_2025, readDocument2025 } from '../src/read-2025.mjs';
+import { SOURCE_FORWARD_REFS } from '../src/index.mjs';
 import { normalizeUnit, figureUrlPrefix } from '../src/normalize.mjs';
 import { emitUnit } from '../src/emit.mjs';
 
@@ -886,4 +887,52 @@ test('an omission that omitted nothing fails the build', () => {
   assert.match(out, /ASSERTIONS FAILED \(1\)/);
   assert.match(out, /matched no clauseref in the package they name/);
   assert.match(out, /volume-one {2}D3D31/);
+});
+
+/* -- R62: the forward-reference note must describe the corpus ------------------ */
+
+const rec = (relPath, content) => ({ relPath, content });
+
+test('R62: a forward reference the corpus publishes but the index does not list FAILS', () => {
+  // The maintenance burden this removes, in the shape that actually happened: B1P7 was removed by
+  // hand when R51 omitted the only file it appeared in, then came back when R60 recovered
+  // volume-three/b1d1. Nothing would have noticed, and corpus/2022/INDEX.md would have gone on
+  // explaining five references while the corpus published six.
+  // Uses a designation the real list does NOT carry, so this asserts the mechanism rather than
+  // today's six entries — and supplies the six so the other direction stays clean.
+  const listed = SOURCE_FORWARD_REFS.get('2022').refs.map(([t]) => t);
+  const records = [
+    rec('2022/volume-three/b1d1.md', '---\nclause: B1D1\n---\n\nsatisfied by complying with B9D9.\n'),
+    ...listed.map((t, i) => rec(`2022/volume-one/f${i}.md`, `---\nclause: F${i}\n---\n\nsee ${t} here.\n`)),
+  ];
+  const renumbered = [
+    { base: 'B9D8', accepted: 'B9D9', file: 'B9D9-new.xml' },
+    ...listed.map(t => ({ base: 'ZZ', accepted: t, file: `${t}.xml` })),
+  ];
+  const out = forwardRefCheck('2022', records, renumbered);
+  assert.match(out ?? '', /UNLISTED, but present in the corpus: B9D9/);
+  assert.doesNotMatch(out ?? '', /LISTED, but no longer present/, 'the other direction is clean here');
+});
+
+test('R62: a listed forward reference that no longer appears FAILS the other way', () => {
+  // A stale entry sends a reader to a file that is not there — the failure mode of a hand-kept
+  // list, asserted in the direction a "does it still apply?" check would miss.
+  const records = [rec('2022/volume-one/x.md', '---\nclause: X\n---\n\nNothing relevant here.\n')];
+  const out = forwardRefCheck('2022', records, []);
+  assert.match(out ?? '', /LISTED, but no longer present: B1P7, B2P12, B3P8, B6D7, B7P5, F1D11/);
+});
+
+test('R62: a renumbered designation that is a REAL designation here is not a forward reference', () => {
+  // Measured false positives, and why the legitimate set is read off the emitted bytes: `J4D6c` is
+  // the 2025 num of one table AND the 2022 num of a different one; `S37C7a` is a published table
+  // where the renumbered object is a figure. Counting either would put a wrong note in the index.
+  const records = [rec('2022/volume-one/j4d6.md',
+    '---\nclause: J4D6\n---\n\nthe values specified in Table J4D6c.\n\n### Table J4D6c — Solar admittance\n')];
+  const renumbered = [{ base: 'J4D6b', accepted: 'J4D6c', file: 'table-J4D6b-solar-admittance.xml' }];
+  const out = forwardRefCheck('2022', records, renumbered);
+  assert.doesNotMatch(out ?? '', /J4D6c/);
+});
+
+test('R62: an edition with no declaration and no renumbering is silent', () => {
+  assert.equal(forwardRefCheck('2025', [rec('2025/x.md', '---\nclause: X\n---\n\nBody.\n')], []), null);
 });

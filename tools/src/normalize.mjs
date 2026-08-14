@@ -272,6 +272,9 @@ function makeSink() {
   return {
     line(s) { buf.push(s); },
     block(s) { flush(); if (s) blocks.push(s); },
+    /** How much has been produced so far. R61 compares it either side of a subclause to ask
+     *  whether that subclause rendered anything at all. */
+    size() { return blocks.length + buf.length; },
     done() { flush(); return blocks; },
   };
 }
@@ -312,7 +315,23 @@ function renderBlock(node, sink, st, depth) {
       if (node.getAttribute('variation-type')) sink.block(`**${variationLabel(node)}**`);
       const deleted = unitProseAttribute(node);
       if (deleted) sink.block(deleted);
+      // R61 — a subclause that renders NOTHING has no number either. NCC 2022's packages carry
+      // subclause shells whose every <p> is a 2024 insertion: the base view empties them correctly
+      // and the `<num>` survives, so the file ended with `**(2)** **(3)** **(4)**` and nothing
+      // beneath them — subclause numbers for provisions the Code does not have. Measured: 9 such
+      // labels across J6D12, J6D13, J8D2 and C2P5, and 0 comparable lines in corpus/2025.
+      //
+      // The test is "this subclause produced no block", NOT "the number is solitary" and NOT "the
+      // paragraph is empty". B6P4's `<num>1</num>` is followed by an inserted <p> that vanishes
+      // and a DELETED <ol> that the base view RESTORES: it produces blocks, its `(1)` labels them,
+      // and it must survive. A number is only dropped when there is demonstrably nothing under it.
+      const numBefore = st.pendingNum;
+      const sizeBefore = sink.size();
       for (const c of rest) renderBlock(c, sink, st, depth);
+      if (sink.size() === sizeBefore && st.pendingNum && st.pendingNum !== numBefore) {
+        st.warnings.push(`empty-subclause: ${st.pendingNum} labels nothing in this edition — dropped`);
+        st.pendingNum = null;
+      }
       return;
     }
 

@@ -6,6 +6,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
+import path from 'node:path';
 import { DOMParser } from '@xmldom/xmldom';
 import { normalizeUnit } from '../src/normalize.mjs';
 import { BODY_SKIP_TAGS, BODY_TAGS_2025, DOCUMENTS_2025, overviewChildren, readDocument2025 } from '../src/read-2025.mjs';
@@ -875,4 +876,80 @@ test('the renderable formats keep the image syntax', () => {
     assert.ok(body.includes(`[Figure 1a: C](https://cdn.aecassistant.com.au/images/ncc/2022/volume1/${src})`),
       `${src} always carries the caption and the URL, whichever syntax it uses`);
   }
+});
+
+/* -- R61: a subclause that renders nothing has no number either ---------------- */
+
+// Same as md22, but keeps the warnings — R61 records what it drops.
+const full22 = (xml, extra) => normalizeUnit(unit22(el(xml), extra), { year: '2022', cdnKey: 'volume1' });
+
+test('R61: a subclause that renders nothing drops its number with it', () => {
+  // What the base view hands the renderer for NCC 2022's 2025-only subclause shells: the <num>
+  // survives (untracked) and the <p> is empty (its every range was a 2024 insertion). The files
+  // therefore ended "**(2)** **(3)** **(4)**" with nothing beneath them — subclause numbers for
+  // provisions the Code does not have. Measured: 9 such labels across J6D12, J6D13, J8D2 and
+  // C2P5, against 0 comparable lines in corpus/2025.
+  const { bodyMd, warnings } = full22('<clause><title>Heated water supply</title>'
+    + '<subclause outputclass="subclause"><title>SubClause</title><num>1</num>'
+    + '<p>A heated water supply system must comply.</p></subclause>'
+    + '<subclause outputclass="subclause"><title>SubClause</title><num>2</num><p/></subclause>'
+    + '<subclause outputclass="subclause"><title>SubClause</title><num>3</num><p/></subclause></clause>');
+  assert.equal(bodyMd, '**(1)** A heated water supply system must comply.');
+  assert.equal(warnings.filter(w => w.startsWith('empty-subclause')).length, 2,
+    'both emptied subclauses are recorded, not silently dropped');
+  assert.equal(warnings.filter(w => w.startsWith('orphan-num')).length, 0);
+});
+
+test('R61: a number that labels a LIST survives — the B6P4 shape', () => {
+  // The discriminating case, and why the test is "this subclause produced no block" rather than
+  // "the paragraph is empty" or "the number is solitary". B6P4's <num>1</num> is followed by an
+  // emptied <p> AND a list the base view restored from a 2025 deletion: that list is NCC 2022
+  // content, the (1) labels it, and dropping the number would unlabel real published law.
+  const { bodyMd, warnings } = full22('<clause><title>Access and isolation</title>'
+    + '<subclause outputclass="subclause"><title>SubClause</title><num>1</num><p/>'
+    + '<ol outputclass="alpha"><li>A rainwater service must ensure access.</li>'
+    + '<li>A rainwater service must ensure isolation.</li></ol></subclause></clause>');
+  assert.match(bodyMd, /^\*\*\(1\)\*\*$/m, 'the number survives, on its own line, labelling the list');
+  assert.match(bodyMd, /^\(a\) A rainwater service must ensure access\.$/m);
+  assert.equal(warnings.filter(w => w.startsWith('empty-subclause')).length, 0,
+    'this subclause produced blocks, so nothing was dropped');
+  assert.equal(warnings.filter(w => w.startsWith('orphan-num')).length, 1,
+    'it is still an orphan-num — the number found no paragraph — and that is reported, not fixed');
+});
+
+test('R61: a @deleted-text disapplication survives; the number that labels nothing does not', () => {
+  // The other way a subclause carries content: one per package holds a whole VIC disapplication in
+  // @deleted-text with an emptied <p> beside it. The disapplication IS the provision and must
+  // survive. The `<num>` after it still labels nothing — the emptied <p> — so it is dropped and
+  // recorded, which is the same answer R61 gives everywhere and better than the pre-R61 behaviour
+  // of printing `**(1)**` on its own line BELOW the text it was supposed to introduce.
+  const { bodyMd, warnings } = full22('<clause><title>T</title>'
+    + '<subclause outputclass="subclause" deleted-text="This Part does not apply in Victoria."'
+    + ' variation="VIC" variation-type="DELETE"><title>SubClause</title><num>1</num><p/></subclause></clause>');
+  assert.match(bodyMd, /This Part does not apply in Victoria\./, 'the disapplication survives');
+  assert.doesNotMatch(bodyMd, /\*\*\(1\)\*\*/, 'and the number, which labels nothing after it, does not');
+  assert.equal(warnings.filter(w => w.startsWith('empty-subclause')).length, 1, 'the drop is recorded');
+});
+
+test('R61: the corpus it was written for has no label with nothing beneath it', {
+  skip: !fs.existsSync('corpus/2022'),
+}, () => {
+  // The property, over the artifact rather than a fixture. A `**(n)**` line whose next non-blank
+  // line is another such label, or which ends the file, is a subclause number for a provision that
+  // is not there. Measured 9 before R61 and 0 after; corpus/2025 has always had 0.
+  const walk = d => fs.readdirSync(d, { withFileTypes: true })
+    .flatMap(e => (e.isDirectory() ? walk(path.join(d, e.name)) : [path.join(d, e.name)]));
+  const LABEL = /^\*\*\([^)]*\)\*\*$/;
+  const dangling = [];
+  for (const f of walk('corpus/2022')) {
+    if (!f.endsWith('.md') || f.endsWith('INDEX.md')) continue;
+    const lines = fs.readFileSync(f, 'utf8').split('\n');
+    for (let i = 0; i < lines.length; i++) {
+      if (!LABEL.test(lines[i])) continue;
+      let j = i + 1;
+      while (j < lines.length && lines[j].trim() === '') j++;
+      if (j >= lines.length || LABEL.test(lines[j])) dangling.push(`${f}:${i + 1}`);
+    }
+  }
+  assert.deepEqual(dangling, []);
 });
