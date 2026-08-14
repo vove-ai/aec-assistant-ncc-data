@@ -143,6 +143,53 @@ They sit on exactly three elements (vol-one: `table-reference` 159, `clause` 148
 
 > **Rule: local name `type`, in the trackchanges namespace *or in no namespace*.**
 
+> ⊕ **And the mark is on the ELEMENT. It says nothing about the text underneath it.** This was
+> read, for sixteen tasks, as "an inserted element and its subtree are 2025-draft content", and
+> that is false of this source: the 2025 editing RESTRUCTURED clauses — wrapping an existing
+> requirement in a new `<ol>`, promoting a sub-paragraph to a subclause of its own, moving an
+> item between levels — and XPress marks the new container inserted while leaving the text it
+> carries untracked, or bracketed by a `delText` (which the table above says is NCC 2022 text to
+> KEEP). Deleting the subtree therefore deletes published Code that carries no mark of its own.
+>
+> Measured, after excluding text the tracking cannot reach (see below): **126 distinct sites in
+> 27 source files**, and the ones that change an answer are `J5D2` (its whole application list),
+> `S5C19` (all four carpark conditions), `J6D3(3)` and `J6D4(4)` (the time-switch exemptions),
+> `J6D5(3)(b)-(d)`, `J6D10(3)`, `J9D4(1)` and its table note, `B1D4(1)(k)`, `J1P1(1)(a)-(b)`.
+> Each was checked against ncc.abcb.gov.au: for example the draft's J6D5 subclauses 8, 9 and 10
+> are the published J6D5(3)(b), (c) and (d) word for word.
+>
+> **What the source does NOT record is where that text sat before.** A container being new is
+> recorded; the 2022 numbering of what it now holds is not, and it is not derivable — J1P1 wants
+> the promoted items spliced into the enclosing list, J9D4 wants its stem returned to the
+> paragraph, J5D2 wants both. So `read-2022.mjs` keeps the text and does not invent a letter for
+> it: in a restructured clause a requirement may render one level deeper than the Code prints it.
+> That is a stated limitation, not a silent one — the build prints every retention, and AGENTS.md
+> tells a reading agent that a sub-paragraph letter in those clauses is not citable.
+>
+> **Two kinds of text are not evidence of anything**, and reading them as such publishes 2025
+> draft words as 2022 law:
+>
+>  * **inline elements.** A milestone range brackets sibling TEXT; an inline element between the
+>    end of one range and the start of the next is covered by neither. `A5G6`'s
+>    `<xref>non-combustible</xref>` and volume-two `H6D2`'s `<xref>required</xref>` are the two
+>    instances in all four packages, both a single glossary word inside a wholly inserted sentence.
+>  * **MathML.** 1,918 `<math>` elements across the four packages, **0** carrying a milestone or an
+>    element-level mark anywhere inside. An equation is opaque to the tracking, so its content can
+>    never say which edition it belongs to.
+>
+> And ten sites where the only untracked characters are punctuation left between two ranges — a
+> `;`, an `s`, a `,`, two colons — are enumerated in `NOT_BASE_CYCLE_TEXT` with the published NCC
+> 2022 that proves what they are not. **A `delete` mark dated ≤2022 is outside all of this**: text
+> removed before NCC 2022 shipped is recorded at element level by design, so its content being
+> untracked means nothing and the element is dropped whole.
+>
+> One more consequence, at the join rather than in the text: a `<table-reference conref>` /
+> `<image-reference conref>` POINTER carries no content at all — the table is in another file — so
+> emptiness is evidence about the wrong document. 27 pointers per package carry a 2025 insert mark
+> and **4** name a wrapper that still holds NCC 2022 content, two of them Volume Three `C2V3`'s
+> Tables C2V3a and C2V3b, cited by name in untracked 2022 prose. The decision is made against the
+> TARGET.
+
 Years (vol-one): 2020 5 · 2021 330 · 2022 36 · 2024 6422 · 2025 1506. The year splits the two
 editorial cycles cleanly, but **the rule is not "keep everything ≤2022"** — it is per direction:
 

@@ -311,13 +311,29 @@ diagrams. Same caption, same one-grep reachability; only the leading `!` differs
 
 ## NCC 2022: what is missing and what looks wrong
 
-Both lists are reproduced in full at the top of `corpus/2022/INDEX.md`, with evidence. Read it
-before concluding that a 2022 clause does not exist.
+Both lists are reproduced in full at the top of `corpus/2022/INDEX.md`, each entry with the reason
+it is there. Read it before concluding that a 2022 clause does not exist. (The measurement behind
+each reason — the source markup, the published sentence it was checked against — lives in the
+ruling in `tools/src/read-2022.mjs` and in the build report, which nothing searching the corpus
+reads. The index gives you the fact and the reason; the repository holds the working.)
 
 **Eight clauses are not published here** — nine files counting jurisdiction variations — because
 the ABCB source packages do not contain their text: `volume-one D3D31`; `volume-three B1V1, B5D7,
 C1O1, C3D1, D1O1, E1D1 (and its TAS variation), E1O1`. They are omitted rather than stubbed, so
 they are simply absent. If you cannot find a 2022 clause, check that list, then cite the live Code.
+
+**In a handful of NCC 2022 clauses the sub-numbering is the 2025 draft's, not the Code's.** The
+source packages are dual-state editorial files, and where the 2025 draft RESTRUCTURED a clause —
+wrapped an existing requirement in a new list, promoted it to a subclause of its own, moved it
+between levels — the mark records that the container is new but never where its text sat before.
+The corpus keeps the text, because losing published Code is worse; it does not invent a letter for
+it, because that would be a guess published as law. So in those clauses a requirement may sit one
+level deeper than the Code prints it, or under no letter at all, and **`J5D2(1)(a)` as printed here
+is not necessarily `J5D2(1)(a)` as published**. Quote the words and the clause; verify a
+sub-paragraph letter at `web_url` before citing one. Affected clauses are named in the build
+report's BASE-VIEW RETENTIONS block. Two of them are also short: `J5D2` gives two of the four
+exclusions the published clause lists (the third is missing its opening words and the fourth,
+"parts of buildings that cannot be fully enclosed", is not in the source at all).
 
 **Six cross-references print an NCC 2025 designation.** `F1D11`, `B1P7`, `B2P12`, `B3P8`, `B6D7`
 and `B7P5` appear in NCC 2022 text that the ABCB itself publishes that way — the source carries no

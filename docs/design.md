@@ -1,7 +1,11 @@
 # aec-assistant-ncc-data — Design
 
-**Date:** 2026-08-13
-**Status:** Draft — awaiting owner review
+**Date:** 2026-08-13 · last reconciled with the built repository 2026-08-15
+**Status:** Implemented. This document states the DESIGN, and the repository is the
+authority on what was built — where they differ, the repository wins and this document
+is corrected. The corpus, both readers, the acceptance suite, the CI drift guard and
+the figure sync are live; see `.superpowers/sdd/plan/progress.md` for the rulings that
+moved the design, which are the record of every place it was wrong.
 **Repo:** `vove-ai/aec-assistant-ncc-data` (public; created only after this spec is approved)
 **Local working copy:** `C:\dev\aec-assistant-ncc-data`
 
@@ -90,12 +94,17 @@ aec-assistant-ncc-data/
 ├── tools/
 │   ├── src/
 │   │   ├── fetch.mjs          # release assets → .cache/, SHA-256 verified
-│   │   ├── read-2022.mjs      # DITA per-clause files → unit AST
+│   │   ├── zip.mjs            # the extractor fetch.mjs uses (stored + deflated entries)
+│   │   ├── read-2022.mjs      # DITA per-clause files → unit AST; owns the BASE VIEW (§1)
 │   │   ├── read-2025.mjs      # monolithic contents.xml → unit AST (XSD-derived walk)
 │   │   ├── normalize.mjs      # xrefs inlined, figure URLs, list labels, tables
 │   │   ├── emit.mjs           # unit AST → frontmatter + markdown body
+│   │   ├── weblinks.mjs       # the ncc.abcb.gov.au link index → each unit's web_url
+│   │   ├── fetch-weblinks.mjs # builds that index from the site's own sitemap
 │   │   ├── index.mjs          # INDEX.md generation
-│   │   └── build.mjs          # orchestration; --edition, --slice for the pilot
+│   │   ├── sync-figures.mjs   # figure CDN verification and wrangler-backed upload
+│   │   ├── verify-agent.mjs   # live check that a mounted agent can answer from the corpus
+│   │   └── build.mjs          # orchestration; --edition, --volumes, --sections
 │   ├── test/                  # node:test — unit tests + acceptance suite
 │   └── checksums.json         # pinned SHA-256s, tag ncc-2026-07
 ├── .github/workflows/ci.yml
@@ -247,10 +256,13 @@ Three layers:
    skeleton: docs, fetch + checksum verification, CI, empty corpus. Creating the
    repo first means the CI drift guard is active for every subsequent step. GitHub
    is touched only after this spec is approved.
-2. **Pilot slice** — Section C (fire) from Volume One, both editions (~80 units):
-   figure-heavy, Standards-heavy, state variations, specifications. Written through
-   the full pipeline; `content-model-2022.md` written from what the 2022 reader
-   reveals.
+2. **Pilot slice** — Sections **A and C** from Volume One, both editions. Section C
+   (fire) alone was the plan; A was added because C exercises no governing-provision,
+   no referenced-documents and no evidence-of-suitability shapes, and those are where
+   both readers' first errors were. Figure-heavy, Standards-heavy, state variations,
+   specifications. Written through the full pipeline; `content-model-2022.md` written
+   from what the 2022 reader reveals — and it found the fact that decided the whole
+   2022 corpus (§1: the packages are dual-state editorial files).
 3. **Gate** — acceptance suite green on the pilot; format locked.
 4. **Bulk** — both editions in full; parity checks against the re-measured unit
    counts in the content-model docs.
@@ -263,40 +275,53 @@ the gate.
 ## Licensing
 
 - **Code** (`tools/`, workflow files): MIT, in `LICENSE`.
-- **Corpus** (`corpus/`): derivative of Commonwealth of Australia / ABCB material
-  under **CC BY 4.0**. The README carries, verbatim, the attribution the ABCB
-  read-me requires — *"The National Construction Code 2022 was provided by the
-  Australian Building Codes Board under the CC BY 4.0 licence"* (and the 2025
-  equivalent) — plus the licence carve-outs (third-party material, trade marks,
-  images/photographs).
+- **Corpus** (`corpus/`): **see the licence table in `README.md`, which is the single
+  source and the only one kept accurate.** This section said "derivative of ... ABCB
+  material under **CC BY 4.0**" for both editions, and that is wrong for NCC 2022 and
+  contradicts the README, which was corrected under R39 after the pilot: **the two
+  editions are published under DIFFERENT licences**, and each publication's own notice
+  is reproduced verbatim in the corpus (`corpus/2022/volume-one/page-copyright-and-
+  licence-notice.md`, `corpus/2025/volume-one/page-copyright-licence-notice-and-
+  acknowledgment-of-country.md`). Restating the terms here is how they drift; a design
+  document is the wrong place for the operative statement of a licence.
 - **Changes are stated explicitly** — the inverse of `alvar-ncc-data`'s "Changes:
   none": split to one file per clause, markup normalized to markdown, glossary
   references inlined as prose, figure references rewritten to CDN URLs, metadata
   added as frontmatter. Not affiliated with or endorsed by the ABCB;
   ncc.abcb.gov.au remains authoritative.
-- Public repo: the source material is CC BY 4.0 and already publicly redistributed
-  by `alvar-ncc-data`.
 
-## Open items (resolved during pilot, before the gate)
+## Open items (all five resolved; kept with their answers, in the format item 4 set)
 
-1. **2022 figure CDN coverage** — do all ~1,000 NCC 2022 SVGs already exist in R2
-   under `images/ncc/…`? If not, an upload pass from the zips' `Images/` folders is
-   added to scope (script in `tools/`, R2 credentials from the aec-assistant
-   environment).
-2. **2022 `web_url` derivation** — establish the ncc.abcb.gov.au URL rule for the
-   2022 edition (the site's 2022 pages mirror structure the way 2025's do);
-   uniqueness asserted the same way.
-3. **2022 amendment state** — the ABCB read-me doesn't state it; determine from
-   content (e.g. presence of known Amdt 2 provisions) and record in README +
-   `corpus/INDEX.md`.
+1. **2022 figure CDN coverage** — RESOLVED. `tools/src/sync-figures.mjs` enumerates
+   what each edition's corpus actually references, checks every URL against the CDN and
+   uploads the gaps through wrangler. **Ten objects are outstanding at the CDN**: eight
+   volume covers and two CONTENT diagrams —
+   `image-7-4-4-explanatory-valley-gutter-profile.eps` (cited by
+   `corpus/2022/housing-provisions/7.4.4-installation-of-gutters.md`) and
+   `image-9-2-9-concession-for-encroachment-of-eaves-SA.eps`. Both are `.eps`, so they
+   ship as links rather than inline images (R52) — the link 404s until the upload runs.
+2. **2022 `web_url` derivation** — RESOLVED. `weblinks.mjs` keys a link index built by
+   `fetch-weblinks.mjs` from the site's own sitemap rather than deriving URLs from a
+   guessed rule; the nulls that remain are ruled on, enumerated and asserted (R50/R58,
+   acceptance #5).
+3. **2022 amendment state** — RESOLVED. The packages are NCC 2022 **as first
+   published, no amendment** — established from the tracked-change dates rather than
+   from content probes (`content-model-2022.md` §1c: every edit is dated 2021, 2024 or
+   2025, and the 2024/2025 ones are the NCC 2025 draft). Recorded in `README.md` and in
+   `AGENTS.md`, which tells a reading agent to cite the live Code when a question turns
+   on Amendment 1 or 2.
 4. **2025 glossary byte-identity across volumes** — RESOLVED, and the premise was
    wrong: **zero** of the 555 shared paths are byte-identical, because `citation:`,
    `web_url:` and the provenance key are per-volume by construction. The question only
    ever had an answer on the BODY, and on that the four documents agree on 545 outright,
    on 9 more once this pipeline's own per-volume figure CDN key is neutralised, and
    disagree on exactly 1. See `content-model-2025.md` § The glossary across volumes.
-5. **2022 glossary source location** — locate where the DITA set carries glossary
-   definitions (dedicated files vs. references only).
+5. **2022 glossary source location** — RESOLVED, and it is dedicated files: 543
+   `abcb-glossentry` roots per package, carried INLINE in three nested glossary maps
+   (`glossary-{glossary,abbreviations,symbols}.xml`) rather than conref'd, with the term
+   in `<glossterm>` and not in `<title>`. Three of them per package are not where a flat
+   readdir looks — they are directories, because the term contains a literal `/`. See
+   `content-model-2022.md` §2.1 and §7.
 
 ## Risks
 
