@@ -953,3 +953,92 @@ test('R61: the corpus it was written for has no label with nothing beneath it', 
   }
   assert.deepEqual(dangling, []);
 });
+
+/* -- R72: R61's rule one level down — lists, callouts and table rows ------------ */
+
+test('R72: an empty list item drops its label AND does not consume a letter', () => {
+  // The mechanism-A defect, in the shape the shipped corpus had it. F1D4's first <li> survived the
+  // base view with its whole content inside a 2025 insText range, so the file printed "(a)" with
+  // nothing after it and pushed the two real requirements to (b) and (c). Published NCC 2022 V1
+  // F1D4 has TWO: "(a) be protected in accordance with Section 2.9 of AS 4654.2; and (b) not be
+  // located beneath or run through a planter box…". The letter comes from POSITION, so an item the
+  // Code does not have cannot be allowed to occupy one.
+  const { bodyMd, warnings } = full22('<clause><title>Exposed joints</title>'
+    + '<subclause outputclass="subclause"><title>SubClause</title><num>1</num>'
+    + '<p>Exposed joints must—</p><ol outputclass="alpha"><li/>'
+    + '<li>be protected in accordance with Section 2.9 of AS 4654.2; and</li>'
+    + '<li>not be located beneath or run through a planter box.</li></ol></subclause></clause>');
+  assert.match(bodyMd, /^\(a\) be protected in accordance with Section 2\.9 of AS 4654\.2; and$/m);
+  assert.match(bodyMd, /^\(b\) not be located beneath or run through a planter box\.$/m);
+  assert.doesNotMatch(bodyMd, /^\(c\)/m, 'the letters do not shift');
+  assert.equal(warnings.filter(w => w.startsWith('empty-list-item')).length, 1, 'the drop is recorded');
+});
+
+test('R72: an item whose only content is a nested list keeps its label', () => {
+  // The discriminating case, exactly as R61 has one. A bare label line is not content; a nested
+  // list under it is, and the Code prints that shape — `(c) solar radiation being—` with (i)/(ii)
+  // beneath it. Dropping the host would unlabel published law.
+  const { bodyMd, warnings } = full22('<clause><title>T</title>'
+    + '<subclause outputclass="subclause"><title>SubClause</title><num>1</num><p>x—</p>'
+    + '<ol outputclass="alpha"><li><ol><li>utilised for heating; and</li></ol></li>'
+    + '<li>the energy source of the services.</li></ol></subclause></clause>');
+  assert.match(bodyMd, /^\(a\)$/m);
+  assert.match(bodyMd, /^ {2}\(i\) utilised for heating; and$/m);
+  assert.match(bodyMd, /^\(b\) the energy source of the services\.$/m);
+  assert.equal(warnings.filter(w => w.startsWith('empty-list-item')).length, 0);
+});
+
+test('R72: a callout with a label and no body renders nothing', () => {
+  // 12 label-only callouts shipped in corpus/2022 against 0 in corpus/2025: a box announcing
+  // "Info"/"Exemption"/"Notes" for guidance that is not in this edition. The body is rendered
+  // FIRST and the label only follows content.
+  const { bodyMd, warnings } = full22('<clause><title>T</title>'
+    + '<subclause outputclass="subclause"><title>SubClause</title><num>1</num><p>Body.</p></subclause>'
+    + '<callout><callout-type ncc-info-type="info"/><p/></callout></clause>');
+  assert.equal(bodyMd, '**(1)** Body.');
+  assert.equal(warnings.filter(w => w.startsWith('empty-callout')).length, 1);
+});
+
+test('R72: a callout with a body still carries its label', () => {
+  const { bodyMd } = full22('<clause><title>T</title>'
+    + '<callout><callout-type ncc-info-type="exemption"/><p>Does not apply to a farm shed.</p></callout></clause>');
+  assert.equal(bodyMd, '> **Exemption**\n>\n> Does not apply to a farm shed.');
+});
+
+test('R72: a table row that renders nothing is dropped, and an empty table with it', () => {
+  // 71 blank rows across 8 files of corpus/2022 against 0 in corpus/2025 — rows whose every cell
+  // sat inside a 2024 insText range. A blank row in a table of numeric limits reads as a limit the
+  // Code declines to state.
+  const row = cells => `<row>${cells.map(c => `<entry>${c}</entry>`).join('')}</row>`;
+  const { bodyMd, warnings } = full22('<clause><title>T</title>'
+    + '<table-reference><num>A1G1a</num><title>Limits</title>'
+    + `<table><tgroup cols="2"><thead>${row(['Fixture', 'DU'])}</thead>`
+    + `<tbody>${row(['Basin', '0.5'])}${row(['', ''])}${row(['Bath', '0.8'])}</tbody></tgroup></table>`
+    + '</table-reference></clause>');
+  assert.match(bodyMd, /^### Table A1G1a — Limits$/m);
+  assert.match(bodyMd, /^\| Basin \| 0\.5 \|$/m);
+  assert.doesNotMatch(bodyMd, /^\|\s+\|\s+\|$/m, 'no blank row survives');
+  assert.equal(warnings.filter(w => w.startsWith('table-empty-rows')).length, 1);
+});
+
+test('R72: a table-reference whose every table renders nothing emits no heading', () => {
+  // `### Table X` over nothing answers the "is this table in the corpus?" grep with a yes, which is
+  // worse than an absent table: acceptance #8 exists to catch exactly that question.
+  const { bodyMd, warnings } = full22('<clause><title>T</title>'
+    + '<subclause outputclass="subclause"><title>SubClause</title><num>1</num><p>Body.</p></subclause>'
+    + '<table-reference><num>A1G1a</num><title>Limits</title>'
+    + '<table><tgroup cols="1"><tbody><row><entry/></row></tbody></tgroup></table>'
+    + '</table-reference></clause>');
+  assert.equal(bodyMd, '**(1)** Body.');
+  assert.equal(warnings.filter(w => w.startsWith('empty-table-reference')).length, 1);
+});
+
+test('R72: a table reference the ABCB deliberately left blank still renders', () => {
+  // NCC 2025 S35C2 publishes `Table * * * * * — This table reference has been deliberately left
+  // blank`. It has no body BY DESIGN and the heading is the statement. A num holding no letter or
+  // digit is not a designation, so it promises nothing and the emptiness rule does not apply.
+  const { bodyMd } = full22('<clause><title>T</title>'
+    + '<table-reference><num>* * * * *</num><title>This table reference has been deliberately left blank</title>'
+    + '</table-reference></clause>');
+  assert.equal(bodyMd, '### Table * * * * * — This table reference has been deliberately left blank');
+});

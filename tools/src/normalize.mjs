@@ -265,17 +265,29 @@ function ownChildren(node, bodyTags) {
 
 // Blocks join with a blank line; list lines join with a single newline inside one block. A block
 // arriving mid-list flushes the pending lines first, so document order always survives.
+//
+// Writes are RECORDED rather than applied, so a caller can render something, look at what it
+// produced, and either replay it or throw it away — which is what R72 needs to decide whether a
+// list item or a callout labels anything at all. Replay preserves the line/block distinction,
+// which a re-render from `done()` would flatten.
 function makeSink() {
-  const blocks = [];
-  let buf = [];
-  const flush = () => { if (buf.length) { blocks.push(buf.join('\n')); buf = []; } };
+  const ops = [];
   return {
-    line(s) { buf.push(s); },
-    block(s) { flush(); if (s) blocks.push(s); },
+    ops,
+    line(s) { ops.push({ k: 'line', s }); },
+    block(s) { if (s) ops.push({ k: 'block', s }); },
     /** How much has been produced so far. R61 compares it either side of a subclause to ask
      *  whether that subclause rendered anything at all. */
-    size() { return blocks.length + buf.length; },
-    done() { flush(); return blocks; },
+    size() { return ops.length; },
+    replayInto(sink) { for (const op of ops) (op.k === 'line' ? sink.line(op.s) : sink.block(op.s)); },
+    done() {
+      const blocks = [];
+      let buf = [];
+      const flush = () => { if (buf.length) { blocks.push(buf.join('\n')); buf = []; } };
+      for (const op of ops) { if (op.k === 'line') buf.push(op.s); else { flush(); blocks.push(op.s); } }
+      flush();
+      return blocks;
+    },
   };
 }
 
@@ -433,9 +445,19 @@ function renderBlock(node, sink, st, depth) {
       const kind = (taken['callout-type']?.getAttribute('ncc-info-type') ?? '').trim();
       const t = taken.title ? inlineChildren(taken.title, st) : '';
       const label = [kind ? kind[0].toUpperCase() + kind.slice(1) : '', t].filter(Boolean).join(' — ');
-      if (label) inner.block(`**${label}**`);
+      // R72, the same rule again: the BODY is rendered first, and a box with no body is not a box.
+      // 2022's packages carry callouts whose every paragraph is a 2024 insertion; the base view
+      // empties them correctly and the label survived, so the corpus shipped 12 `> **Info**` lines
+      // announcing guidance that is not in this edition. corpus/2025 has 0.
       for (const c of rest) renderBlock(c, inner, st, depth);
-      sink.block(blockquote(inner.done()));
+      if (!inner.size()) {
+        if (label) st.warnings.push(`empty-callout: "${label}" labels nothing in this edition — dropped`);
+        return;
+      }
+      const body = makeSink();
+      if (label) body.block(`**${label}**`);
+      inner.replayInto(body);
+      sink.block(blockquote(body.done()));
       return;
     }
 
@@ -541,6 +563,17 @@ function flushPendingNum(sink, st) {
 
 /* -- lists ------------------------------------------------------------------ */
 
+// R72 — R61's rule, one level down: a list item that renders NOTHING has no label either, AND IT
+// DOES NOT CONSUME ONE. Both halves are the defect. An <li> that survives the base view but whose
+// entire content sat inside a 2025 insText range emitted a bare "(a)" — a requirement the Code does
+// not have — and every following item then printed one letter late, so `F1D4(1)(b)` in this corpus
+// was `F1D4(1)(a)` in the published Code. The letter comes from the item's POSITION, so an item
+// that is not published cannot be allowed to occupy a position.
+//
+// The test is "this item produced no content", never "the source element is empty" and never a
+// length threshold: an item may hold only a table, a figure or a nested list and still be real.
+// A bare label line emitted to host a nested list is not content — if the nested list then renders
+// nothing, the item as a whole rendered nothing.
 function renderList(list, sink, st, depth, parentStyle) {
   const ordered = list.nodeName === 'ol';
   const style = ordered ? listStyle(list, parentStyle, st) : null;
@@ -549,7 +582,14 @@ function renderList(list, sink, st, depth, parentStyle) {
     if (li.nodeName !== 'li') throw fail(`<${li.nodeName}>`, st, `as a child of <${list.nodeName}>`);
     const label = ordered ? `(${listLabel(style, i)})` : '-';
     // A <ul> is transparent to numbering: an <ol> below it still follows the enclosing <ol>.
-    renderListItem(li, label, sink, st, depth, ordered ? style : parentStyle);
+    const inner = makeSink();
+    renderListItem(li, label, inner, st, depth, ordered ? style : parentStyle);
+    const bare = `${'  '.repeat(depth)}${label}`;
+    if (!inner.ops.some(op => op.k === 'block' || op.s !== bare)) {
+      st.warnings.push(`empty-list-item: ${label} labels nothing in this edition — dropped`);
+      continue;                              // …and `i` does not advance: the letters do not shift
+    }
+    inner.replayInto(sink);
     i++;
   }
 }
@@ -609,7 +649,10 @@ function renderListItem(li, label, sink, st, depth, ownStyle) {
     renderBlock(c, sink, st, depth);   // a table or figure inside an item becomes its own block
   }
   flushText();
-  if (first) sink.line(`${indent}${label}`);   // never drop a label, even for an empty item
+  // The bare label for an item that produced nothing. Emitted so the caller can SEE that this is
+  // all there is — renderList discards it under R72 rather than shipping a label with no
+  // requirement under it.
+  if (first) sink.line(`${indent}${label}`);
 }
 
 function listLabel(style, i) {
@@ -648,10 +691,23 @@ function renderTableReference(node, sink, st, depth) {
   if (node.nodeName !== 'table-reference') sink.block(`**${variationLabel(node)}**`);
   const num = designation(node, taken.num);
   const title = taken.title ? inlineChildren(taken.title, st) : '';
+  // Body first, heading second — R72's rule at wrapper level. A wrapper whose every table is a
+  // 2025 insertion renders nothing, and a `### Table X` heading over nothing answers the "is this
+  // table in the corpus?" grep with a yes. The exception is the wrapper whose TITLE is itself the
+  // statement: NCC 2025 S35C2 publishes `Table * * * * * — This table reference has been
+  // deliberately left blank`, whose num is five asterisks — it has no body by design and is the
+  // ABCB saying so. A heading that states a DESIGNATION is a promise about content; one whose num
+  // holds no letter or digit is not a designation and promises nothing.
+  const inner = makeSink();
+  for (const c of rest) renderBlock(c, inner, st, depth);
+  if (!inner.size() && /[A-Za-z0-9]/.test(num)) {
+    st.warnings.push(`empty-table-reference: Table ${num} renders nothing in this edition — dropped`);
+    return;
+  }
   // "Table B1P1a" is exactly how the corpus's own <a type="table-reference"> cites it, so a grep
   // on the citation lands on this heading.
   sink.block(`### ${['Table', num].filter(Boolean).join(' ')}${title ? ` — ${title}` : ''}`);
-  for (const c of rest) renderBlock(c, sink, st, depth);
+  inner.replayInto(sink);
 }
 
 function renderTable(table, st) {
@@ -712,8 +768,19 @@ function renderTable(table, st) {
     st.warnings.push(`table-multirow-header: ${headerRows} header rows; rows 2+ render as body rows`);
   }
 
-  const out = [`| ${text[0].join(' | ')} |`, `| ${text[0].map(() => '---').join(' | ')} |`];
-  for (let i = 1; i < text.length; i++) out.push(`| ${text[i].join(' | ')} |`);
+  // R72 again, at table level: a ROW that renders nothing is not a row of this edition. NCC 2022's
+  // packages carry rows — and whole tables — whose every cell sits inside a 2024 insText range, so
+  // the base view empties the cells correctly and the grid survived: 71 blank rows across 8 files
+  // of corpus/2022 against 0 in corpus/2025. A blank row in a table of numeric limits reads as a
+  // limit the Code declines to state. The test is on the RENDERED text, so a cell holding a figure,
+  // a formula or a footnote marker still counts as content.
+  const kept = text.filter(r => r.some(c => c !== ''));
+  if (kept.length !== text.length) {
+    st.warnings.push(`table-empty-rows: ${text.length - kept.length} row(s) render nothing in this edition — dropped`);
+  }
+  if (!kept.length) return '';
+  const out = [`| ${kept[0].join(' | ')} |`, `| ${kept[0].map(() => '---').join(' | ')} |`];
+  for (let i = 1; i < kept.length; i++) out.push(`| ${kept[i].join(' | ')} |`);
   return out.join('\n');
 }
 
