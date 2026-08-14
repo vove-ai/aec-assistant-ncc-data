@@ -41,6 +41,11 @@ defined_terms:
 
 **(3)** A fixed heating or cooling appliance that moderates the temperature of an outdoor space must be configured to automatically shut down when
 
+(a)
+  (i) there are no occupants in the space served; or
+  (ii) a period of one hour has elapsed since the last activation of the heater; or
+  (iii) the space served has reached the design temperature.
+
 **(4)** A gas water heater, that is used as part of an air-conditioning system, must—
 
 (a) if rated to consume 500 MJ/hour of gas or less, achieve a minimum gross thermal efficiency of 86%; or

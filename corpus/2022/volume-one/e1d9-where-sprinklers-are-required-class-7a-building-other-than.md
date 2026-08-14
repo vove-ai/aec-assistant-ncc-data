@@ -17,3 +17,5 @@ defined_terms:
 # E1D9 — Where sprinklers are required: Class 7a building, other than an open-deck carpark
 
 **(1)** In a Class 7a building, other than an open-deck carpark, sprinklers are required in fire compartments where
+
+(a) more than 40 vehicles are accommodated.

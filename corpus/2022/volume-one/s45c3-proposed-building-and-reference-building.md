@@ -113,7 +113,6 @@ defined_terms:
 | 1 | Willis Island | N/A | N/A | N/A |
 | 1 | Cairns | 268 | 6411 | 6030 |
 | 1 | Broome | 624 | 14749 | 14083 |
-|  |  |  |  |  |
 | 2 | Rockhampton | 3283 | 6717 | 1701 |
 | 2 | Amberley | 10958 | 4483 | 290 |
 | 2 | Brisbane | 4744 | 2228 | 1415 |

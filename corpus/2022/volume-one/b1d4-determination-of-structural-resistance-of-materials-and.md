@@ -78,7 +78,7 @@ defined_terms:
   (ii) Roof tiling: AS 2050.
   (iii) Cellulose cement corrugated sheets: AS/NZS 2908.1 with safety mesh installed in accordance with AS 1562.3 clause 2.4.3.2 except for sub-clause (c)(vii) for plastic sheeting.
   (iv) Metal roofing: AS 1562.1.
-(k)
+(k) Particleboard structural flooring: AS 1860.2.
 (l) Garage doors and other large access doors in openings not more than 3 m in height in external walls of buildings determined as being located in wind region C or D in accordance with AS/NZS 1170.2: AS/NZS 4505.
 (m) Lift shafts which are not required to have an FRL, must—
   (i) except as required by (ii), be completely enclosed with non-perforated material between the bottom of the pit and the ceiling of the lift shaft, other than—

@@ -23,10 +23,9 @@ defined_terms:
 
 **(1)** Where required, insulation must comply with AS/NZS 4859.1 and be installed so that it—
 
-(a)
-(b) abuts or overlaps adjoining insulation other than at supporting members such as studs, noggings, joists, furring channels and the like where the insulation must be against the member; and
-(c) forms a continuous barrier with ceilings, walls, bulkheads, floors or the like that inherently contribute to the thermal barrier; and
-(d) does not affect the safe or effective operation of a service or fitting.
+(a) abuts or overlaps adjoining insulation other than at supporting members such as studs, noggings, joists, furring channels and the like where the insulation must be against the member; and
+(b) forms a continuous barrier with ceilings, walls, bulkheads, floors or the like that inherently contribute to the thermal barrier; and
+(c) does not affect the safe or effective operation of a service or fitting.
 
 **(2)** Where required, reflective insulation must be installed with—
 

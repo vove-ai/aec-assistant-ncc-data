@@ -14,5 +14,3 @@ This Part is intended to improve the efficient use of energy in building design 
 > **Notes**
 >
 > From 1 May 2023 to 30 September 2023 Part 2.6 and Part 3.12 of NCC 2019 Volume Two Amendment 1 may apply instead of Part H6 of NCC 2022 Volume Two. From 1 October 2023 Part H6 of NCC 2022 Volume Two applies.
-
-> **Info**

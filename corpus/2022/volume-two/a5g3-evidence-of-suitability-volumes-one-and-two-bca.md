@@ -86,6 +86,10 @@ defined_terms:
 >
 > In the case of a test report from an Accredited Testing Laboratory, the report may be either—
 >
+> -
+>   - the test report referred to in clause 2.16.2 of AS 1530.4 (also referred to as a full test report); or
+>   - the regulatory information report referred to in clause 2.16.3 of AS 1530.4 (also referred to as a short-form report).
+>
 > In both cases the report must be an unabridged copy of the original report. A test certificate referred to in clause 2.16.4 of AS 1530.4 on its own is not suitable for showing compliance with the NCC.
 >
 > If a proposal uses a Deemed-to-Satisfy Provision that requires a building element to have fire hazard properties, then A5G3 may be used to provide evidence to support the proposal and show that the fire hazard properties have been determined in accordance with A5G6.

@@ -16,9 +16,8 @@ defined_terms:
 
 **(1)** Exposed joints in the drainage surface on a roof, balcony, podium or similar horizontal surface part of a building must—
 
-(a)
-(b) be protected in accordance with Section 2.9 of AS 4654.2; and
-(c) not be located beneath or run through a planter box, water feature or similar part of the building.
+(a) be protected in accordance with Section 2.9 of AS 4654.2; and
+(b) not be located beneath or run through a planter box, water feature or similar part of the building.
 
 > **Notes**
 >

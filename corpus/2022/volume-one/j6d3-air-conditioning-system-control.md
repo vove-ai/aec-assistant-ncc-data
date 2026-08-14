@@ -14,6 +14,7 @@ defined_terms:
   - climate zone
   - outdoor air economy cycle
   - sole-occupancy unit
+  - conditioned space
   - Climate zone
   - requiring
 ---
@@ -48,6 +49,17 @@ defined_terms:
 
 (a) an air-conditioning system of more than 2 kWr; and
 (b) a heater of more than 1 kWheating used for air-conditioning.
+
+The time switch must
+
+(a) be capable of switching electric power on and off at variable pre-programmed times and on variable pre-programmed days.
+
+The requirements of (a) and (b) do not apply to—
+
+(a) an air-conditioning system that serves—
+  (i) only one sole-occupancy unit in a Class 2, 3 or 9c building; or
+  (ii) a Class 4 part of a building; or
+(b) a conditioned space where air-conditioning is needed for 24 hour continuous use.
 
 ### Table J6D3 — Requirement for an outdoor air economy cycle
 

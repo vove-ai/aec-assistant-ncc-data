@@ -14,5 +14,3 @@ defined_terms:
 # C1P7 — Damage
 
 **(1)** A sanitary plumbing system must avoid damage from superimposed loads, ground movement or root penetration.
-
-> **Info**

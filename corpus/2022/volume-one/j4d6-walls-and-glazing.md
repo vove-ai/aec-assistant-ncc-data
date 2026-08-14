@@ -50,6 +50,8 @@ defined_terms:
 
 **(7)** The Total system SHGC of display glazing must not be greater than
 
+(a) 0.81 divided by the applicable shading factor specified in S37C7.
+
 ### Table J4D6a — Minimum wall Total R-Value - Wall area 80% or more of wall-glazing construction area
 
 | Climate zone | Class 2 common area, Class 5, 6, 7, 8 or 9b building or a Class 9a building other than a ward area | Class 3 or 9c building or Class 9a ward area |

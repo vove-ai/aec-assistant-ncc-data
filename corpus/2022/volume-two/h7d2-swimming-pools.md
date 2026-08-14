@@ -18,6 +18,9 @@ defined_terms:
 
 **(1)** Performance Requirement H7P1 is satisfied for a swimming pool with a depth of water more than 300 mm and which is associated with a Class 1 building, if it has safety barriers installed in accordance with and
 
+(a) AS 1926.1
+(b) AS 1926.2.
+
 **QLD variation (REPLACE)**
 
 **(1)** This sub-clause has deliberately been left blank.

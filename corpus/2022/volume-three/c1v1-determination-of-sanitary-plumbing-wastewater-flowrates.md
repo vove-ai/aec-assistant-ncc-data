@@ -32,20 +32,6 @@ QTotal=K√(∑DU)+QOther​
 
 ### Table C1V1a — Frequency factors
 
-|  |  |  |  |
-| --- | --- | --- | --- |
-|  |  |  |  |
-|  |  |  |  |
-|  |  |  |  |
-|  |  |  |  |
-|  |  |  |  |
-|  |  |  |  |
-|  |  |  |  |
-|  |  |  |  |
-|  |  |  |  |
-|  |  |  |  |
-|  |  |  |  |
-
 | Fixture usage | NCC building classes | Frequency factor (K) |
 | --- | --- | --- |
 | Intermittent use e.g. dwelling, guesthouse or office | Class 1, Class 2, Class 3 or Class 4 | 0.5 |
@@ -58,19 +44,13 @@ QTotal=K√(∑DU)+QOther​
 | Fixture | System 1 | System 2 | System 3 |
 | --- | --- | --- | --- |
 | Basin | 0.5 | 0.3 | 0.3 |
-|  |  |  |  |
-|  |  |  |  |
-|  |  |  |  |
 | Shower | 0.6 | 0.4 | 0.4 |
 | Urinal | 0.8 | 0.5 | 0.4 |
-|  |  |  |  |
 | Bath | 0.8 | 0.6 | 1.3 |
 | Kitchen sink | 0.8 | 0.6 | 1.3 |
 | Water closet | 2.0 | 1.8 | 1.2 |
-|  |  |  |  |
 | Washing machine - up to 6 kg | 0.8 | 0.6 | 0.6 |
 | Domestic dishwasher | 0.8 | 0.6 | 0.2 |
-|  |  |  |  |
 
 > **Info**
 >
@@ -81,5 +61,3 @@ QTotal=K√(∑DU)+QOther​
 > - System 3 - A sanitary plumbing system where branch discharge pipes are designed with a filing degree of 100%.
 > - Systems 1 and 2 are similar to the fully vented modified system and System 3 is similar to the single stack system detailed in AS/NZS 3500.2.
 > - Filling degree is defined as the ratio between the height of fluid in a pipe (h) and the diameter of the pipe (D), or h/D.
-
-> **Info**

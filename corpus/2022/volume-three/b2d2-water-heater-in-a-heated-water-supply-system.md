@@ -59,5 +59,3 @@ defined_terms:
 | 1 or 2 | 40% for a ‘small load’ system |
 | 2 or 3 | 60% for a ‘medium load’ system |
 | 4 or more | 60% for a ‘large load’ system |
-
-> **Limitation**

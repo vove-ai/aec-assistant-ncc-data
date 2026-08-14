@@ -24,5 +24,3 @@ defined_terms:
 (b) excluding—
   (i) an open-deck carpark being a separate building; and
   (ii) a Class 8 electricity network substation, with a floor area not more than 200 m2, located within a multi-classified building.
-
-> **Exemption**

@@ -80,7 +80,6 @@ The Standards and other documents listed in this Schedule are referenced in the 
 | AS 2118 Part 6 | 2012 | Automatic fire sprinkler systems — Combined sprinkler and hydrant systems in multistorey buildings | Spec 17 | N/A | N/A | B4D3 |
 | AS 2159 | 2009 | Piling — Design and installation (incorporating amendment 1) | B1D4 | H1D12 | N/A | N/A |
 | AS/NZS 2179 Part 1 | 2014 | Specifications for rainwater goods, accessories and fasteners — Metal shape or sheet rainwater goods, and metal accessories and fasteners | N/A | N/A | 7.4.2 | N/A |
-|  |  |  |  |  |  |  |
 | AS/NZS 2269 Part 0 | 2012 | Plywood — Structural — Specifications (incorporating amendment 1) | N/A | N/A | 7.5.4 | N/A |
 | AS/NZS 2293 Part 1 | 2018 | Emergency lighting and exit signs for buildings — System design, installation and operation (incorporating amendment 1) | E4D4, E4D8, Spec 25, I3D15 | N/A | N/A | N/A |
 | AS 2312 Part 1 | 2014 | Guide to the protection of structural steel against atmospheric corrosion by the use of protective coatings — Paint coatings | N/A | N/A | 6.3.9 | N/A |
@@ -113,7 +112,6 @@ The Standards and other documents listed in this Schedule are referenced in the 
 | AS 3740 | 2021 | Waterproofing of domestic wet areas | F2D2 | H4D2, H4D3 | 10.2.20 | N/A |
 | AS 3786 | 2014 | Smoke alarms using scattered light, transmitted light or ionization (incorporating amendment 1 and 2) (See Note 5) | Spec 20 | N/A | 9.5.1 | N/A |
 | AS/NZS 3823 Part 1.2 | 2012 | Performance of electrical appliances — Air conditioners and heat pumps — Ducted air conditioners and air-to-air heat pumps — Testing and rating for performance | Spec 33, J6D12 | N/A | N/A | N/A |
-|  |  |  |  |  |  |  |
 | AS 3959 | 2018 | Construction of buildings in bushfire-prone areas (incorporating amendments 1 and 2) | C2D14, F8D5, G5D2, G5D3, Spec 43 | H7D4 | 10.8.3 | B1D4, B2D10, B3D4, C1D4, C2D5 |
 | AS/NZS 4020 | 2018 | Testing of products for use in contact with drinking water (See Note 6) | A5G4 | A5G4 | N/A | A5G4 |
 | AS 4055 | 2021 | Wind loads for housing | Schedule 1 | H1D6, H1D8, Schedule 1 | 2.2.3, Schedule 1 | Schedule 1 |
@@ -143,13 +141,10 @@ The Standards and other documents listed in this Schedule are referenced in the 
 | AS 5146 Part 1 | 2015 | Reinforced autoclaved aerated concrete — Structures (incorporating amendment 1) | B1D4 | H1D7 | N/A | N/A |
 | AS 5146 Part 3 | 2018 | Reinforced autoclaved aerated concrete — Construction | B1D4, F3D5 | N/A | N/A | N/A |
 | AS 5216 | 2021 | Design of post-installed and cast-in fastenings in concrete | B1D4 | N/A | 2.2.4 | N/A |
-|  |  |  |  |  |  |  |
 | AS/NZS 5601 Part 1 | 2013 | Gas installations — General installations | J1V4 | H6V3 | N/A | N/A |
 | AS 5637 Part 1 | 2015 | Determination of fire hazard properties — Wall and ceiling linings | Spec 7, Schedule 1 | Schedule 1 | Schedule 1 | Schedule 1 |
-|  |  |  |  |  |  |  |
 | AS ISO 9239 Part 1 | 2003 | Reaction to fire tests for floorings — Determination of the burning behaviour using a radiant heat source | Schedule 1 | Schedule 1 | Schedule 1 | Schedule 1 |
 | AS/NZS ISO 9972 | 2015 | Thermal performance of buildings — Determination of air permeability of buildings — Fan pressurization method | J1V4 | H6V3 | N/A | N/A |
-|  |  |  |  |  |  |  |
 | AIRAH-DA07 | 2021 | Criteria for moisture control design analysis in buildings | F8V1 | H4V5 | N/A | N/A |
 | AIRAH-DA09 | 1998 | Air conditioning load estimation | Spec 35 | N/A | N/A | N/A |
 | AIRAH-DA28 | 2011 | Building management and control systems | Spec 34 | N/A | N/A | N/A |
@@ -159,11 +154,8 @@ The Standards and other documents listed in this Schedule are referenced in the 
 | ASTM E72-15 | 2015 | Standard Test Methods of Conducting Strength Tests of Panels for Building Construction | Spec 6 | N/A | N/A | N/A |
 | ASTM E695-03 | 2003 | Standard Test Method of Measuring Relative Resistance of Wall, Floor and Roof Construction to Impact Loading | Spec 6 | N/A | N/A | N/A |
 | ASTM E96 | 2016 | Standard Test Methods for Water Vapor Transmission of Materials | Schedule 1 | Schedule 1 | Schedule 1 | Schedule 1 |
-|  |  |  |  |  |  |  |
 | AHRI 460 | 2005 | Performance rating of remote mechanical-draft air-cooled refrigerant condensers | J6D13 | N/A | N/A | N/A |
 | AHRI 551/591 | 2015 | Performance rating of water-chilling and heat pump water-heating packages using the vapor compression cycle. | Spec 33, J6D11 | N/A | N/A | N/A |
-|  |  |  |  |  |  |  |
-|  |  |  |  |  |  |  |
 | ABCB | 2022 | Fire Safety Verification Method | C1V4 | N/A | N/A | N/A |
 | ABCB | 2022 | Housing Provisions Standard | N/A | Throughout | Throughout | N/A |
 | ABCB | 2022 | Livable Housing Design | G7D2 | H4D3, H8D2 | 3.3.3, 11.2.3 | N/A |
@@ -188,7 +180,6 @@ The Standards and other documents listed in this Schedule are referenced in the 
 | NSF/ ANSI/ CAN 372 | 2020 | Drinking Water System Components - Lead Content | A5G4 | A5G4 | N/A | A5G4 |
 | N/A | N/A | Northern Territory Deemed to Comply Standards Manual | N/A | N/A | 2.2.4 | N/A |
 | SA TS 5344 | 2019 | Permanent labelling for Aluminium Composite Panel (ACP) products | A5G8 | A5G8 | N/A | A5G8 |
-|  |  |  |  |  |  |  |
 | TN 61 | N/A | Cement Concrete and Aggregates Australia — Technical note — Articulated walling | N/A | H1D4 | N/A | N/A |
 | WMK NOD 2021/4.2 | 2021 | WaterMark Notice of Direction 2021/4.2 Certification transition arrangements for lead free plumbing products | A5G4 | A5G4 | N/A | A5G4 |
 

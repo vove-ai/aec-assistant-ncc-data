@@ -13,6 +13,7 @@ jurisdiction: aus
 For the purposes of—
 
 (a) Volume One,
+  (i) software accredited under the Nationwide House Energy Rating Scheme (NatHERS); or
 (b) Volume Two—
   (i) applied to H6V2—software accredited or previously accredited under the Nationwide House Energy Rating Scheme (NatHERS) and the additional functionality provided in non-regulatory mode; and
   (ii) applied to Specification 42—software accredited under the Nationwide House Energy Rating Scheme (NatHERS).

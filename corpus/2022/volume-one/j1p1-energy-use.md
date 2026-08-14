@@ -24,6 +24,8 @@ defined_terms:
 **(1)** A building, other than a sole-occupancy unit of a Class 2 building or a Class 4 part of a building, including its services, must have features that facilitate the efficient use of energy appropriate to—
 
 (a)
+  (i) the function and use of the building; and
+  (ii) the level of human comfort required for the building use; and
 (b) solar radiation being—
   (i) utilised for heating; and
   (ii) controlled to minimise energy for cooling; and

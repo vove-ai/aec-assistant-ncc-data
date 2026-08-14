@@ -21,5 +21,3 @@ defined_terms:
 **(2)** A sanitary drainage system must avoid damage to existing buildings or siteworks.
 
 **(3)** A sanitary drainage system must avoid damage to the Network Utility Operator's sewerage system or other approved disposal system.
-
-> **Notes**

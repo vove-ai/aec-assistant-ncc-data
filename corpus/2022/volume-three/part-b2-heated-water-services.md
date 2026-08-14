@@ -36,4 +36,3 @@ This Part sets out the requirements for any part of a heated water service of a 
 > | Central heating pipework | J6 Air-conditioning and ventilation systems | H6 Energy efficiency |
 > | Pool and spa heating and pumping - energy efficiency | J8 Heated water supply and swimming pool and spa pool plant | H6 Energy efficiency |
 > | Energy consumption monitoring for water heaters | J9 Facilities for energy monitoring | Not applicable |
-> |  |  |  |

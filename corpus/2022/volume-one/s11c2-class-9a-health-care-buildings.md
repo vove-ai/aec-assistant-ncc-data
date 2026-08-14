@@ -18,12 +18,11 @@ defined_terms:
 
 **(1)** Smoke-proof walls required by C3D6 in Class 9a health-care buildings must comply with the following:
 
-(a)
-(b) Be non-combustible and extend to the underside of—
+(a) Be non-combustible and extend to the underside of—
   (i) the floor above; or
   (ii) a non-combustible roof covering; or
   (iii) a ceiling having a resistance to the incipient spread of fire to the space above itself of not less than 60 minutes.
-(c) Not incorporate any glazed areas unless the glass is safety glass as defined in AS 1288.
-(d) Only have doorways which are fitted with smoke doors complying with Specification 12.
-(e) Have all openings around penetrations and the junctions of the smoke-proof wall and the remainder of the building stopped with non-combustible material to prevent the free passage of smoke.
-(f) Incorporate smoke dampers where air-handling ducts penetrate the wall unless the duct forms part of a smoke hazard management system required to continue air movement through the duct during a fire.
+(b) Not incorporate any glazed areas unless the glass is safety glass as defined in AS 1288.
+(c) Only have doorways which are fitted with smoke doors complying with Specification 12.
+(d) Have all openings around penetrations and the junctions of the smoke-proof wall and the remainder of the building stopped with non-combustible material to prevent the free passage of smoke.
+(e) Incorporate smoke dampers where air-handling ducts penetrate the wall unless the duct forms part of a smoke hazard management system required to continue air movement through the duct during a fire.

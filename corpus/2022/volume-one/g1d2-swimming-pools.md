@@ -17,6 +17,9 @@ defined_terms:
 
 **(1)** A swimming pool with a depth of water more than 300 mm and which is associated with a Class 2 or 3 building or Class 4 part of a building, must have suitable barriers to restrict access by young children to the immediate pool surrounds in accordance with and
 
+(a) AS 1926.1
+(b) AS 1926.2.
+
 **WA variation (REPLACE)**
 
 **(2)** A water recirculation system in a swimming pool with a depth of water more than 300 mm must comply with AS 1926.3.

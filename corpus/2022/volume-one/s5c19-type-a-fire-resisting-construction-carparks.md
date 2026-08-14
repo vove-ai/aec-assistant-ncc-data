@@ -11,6 +11,8 @@ building_classes_excluded: Class 1a, Class 1b, Class 2, Class 3, Class 4, Class 
 defined_terms:
   - carpark
   - open-deck carpark
+  - storey
+  - fire wall
   - sole-occupancy units
   - floor area
   - External wall
@@ -29,9 +31,10 @@ defined_terms:
 (a) a separate building; or
 (b) a part of a building—
   (i)
-  (ii)
-  (iii)
-  (iv)
+    (A) which only occupies part of a storey, and is separated from the remaining part by a fire wall; or
+    (B) which is located above below another classification, and the floor separating the classifications complies with C3D10; or
+    (C) which is located above another Class 7 part of the building not used for carparking, and the floor separating the parts complies with Table S5C11g for a Class 7 part other than a carpark; or
+    (D) which is located below another Class 7 part of the building not used for carparking, and the floor separating the parts complies with this clause.
 
 **(2)** For the purposes of this clause, a carpark—
 

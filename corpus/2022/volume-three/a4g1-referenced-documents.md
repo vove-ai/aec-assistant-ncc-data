@@ -32,3 +32,5 @@ supersedes: "2019: A4.0"
 > A4G1 applies to documents referenced in the ABCB Housing Provisions in the same way as for documents referenced within any other part of the NCC.
 
 > **Exemption**
+>
+> (1) If the secondary or other referenced document is also a primary referenced document, A4G1(5) does not apply.

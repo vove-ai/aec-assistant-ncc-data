@@ -33,5 +33,3 @@ defined_terms:
   (ii) a Class 2, 3 or 9 building that—
     (A) is protected throughout by a sprinkler system (other than a FPAA101D or FPAA101H system) complying with Specification 17; or
     (B) has any openings in external walls separated by a slab or other horizontal construction complying with C3D7(1)(d) as if the building were of Type A construction.
-
-> **Notes**

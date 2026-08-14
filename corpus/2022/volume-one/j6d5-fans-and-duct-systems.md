@@ -45,6 +45,15 @@ defined_terms:
 
 **(3)** Ductwork:The pressure drop in the index run across all straight sections of rigid ductwork and all sections of flexible ductwork must not exceed 1 Pa/m when averaged over the entire length of straight rigid duct and flexible duct. The pressure drop of flexible ductwork sections may be calculated as if the flexible ductwork is laid straight.
 
+Flexible ductwork must not account for more than 6 m in length in any duct run.
+
+The upstream connection to ductwork bends, elbows and tees in the index run must have an equivalent diameter to the connected duct.
+
+Turning vanes must be included in all rigid ductwork elbows of 90° or more acute than 90° in the index run except where—
+
+(a) the inclusion of turning vanes presents a fouling risk; or
+(b) a long radius bend in accordance with AS 4254.2 is used.
+
 **(4)** Ductwork components in the index run:
 
 (a) The pressure drop across a coil must not exceed the value specified in Table J6D5d.
@@ -84,7 +93,6 @@ defined_terms:
 | Fan type | Installation type A or C | Installation type B or D |
 | --- | --- | --- |
 | Axial — as a component of an air handling unit or fan coil unit | 46.0 | 51.5 |
-|  |  |  |
 | Axial — other | 42.0 | 61.0 |
 | Mixed flow — as a component of an air handling unit or fan coil unit | 46.0 | 51.5 |
 | Mixed flow — other | 52.5 | 65.0 |

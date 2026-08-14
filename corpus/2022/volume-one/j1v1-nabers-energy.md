@@ -10,16 +10,17 @@ supersedes: "2019: JV1"
 building_classes_excluded: Class 1a, Class 1b, Class 4, Class 7a, Class 7b, Class 8, Class 9a, Class 9b, Class 9c, Class 10a, Class 10b, Class 10c
 defined_terms:
   - NABERS Energy
-  - sole-occupancy units
-  - air-conditioning
-  - required
+  - carpark
   - services
   - thermal comfort level
   - Predicted Mean Vote
   - floor area
+  - hours of operation
+  - sole-occupancy units
+  - air-conditioning
+  - required
   - air-conditioned
   - swimming pool
-  - hours of operation
 ---
 
 # J1V1 — NABERS Energy
@@ -28,7 +29,12 @@ defined_terms:
 
 (a) a minimum 5.5-star NABERS Energy base building Commitment Agreement is obtained; and
 (b) the energy model required for (a) demonstrates—the base building’s greenhouse gas emissions are not more than 67% of the 5.5-star level when excluding—
-(c) the building complies with the additional requirements in Specification 33.
+  (i) tenant supplementary heating and cooling systems; and
+  (ii) external lighting; and
+  (iii) carpark services; and
+(c)
+  (i) a thermal comfort level of between a Predicted Mean Vote of -1 to +1 is achieved across not less than 95% of the floor area of all occupied zones for not less than 98% of the annual hours of operation of the building; and
+(d) the building complies with the additional requirements in Specification 33.
 
 **(2)** For a Class 2 building, other than sole-occupancy units, compliance with J1P1 is verified when—
 

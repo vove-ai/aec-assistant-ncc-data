@@ -44,8 +44,6 @@ defined_terms:
   (i) 600 kg if not provided with a stretcher facility; or
   (ii) 900 kg if provided with a stretcher facility.
 
-> **Info**
-
 ### Table E3D5 — Minimum emergency lift dimensions in Class 9a buildings
 
 | Lift component | Minimum dimension (mm) |

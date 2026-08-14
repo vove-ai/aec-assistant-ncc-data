@@ -15,6 +15,9 @@ defined_terms:
   - rainwater service
   - swimming pool
   - boilers
+  - Individual protection
+  - Hazard Rating
+  - Zone protection
   - backflow prevention device
   - site
   - Network Utility Operator’s
@@ -36,6 +39,7 @@ defined_terms:
 **(2)** Each hazard must—
 
 (a) be assigned—
+  (i) an Individual protection Hazard Rating or Zone protection Hazard Rating in accordance with S41C4 and S41C5; and
 (b) be isolated from the drinking water service by an appropriate backflow prevention device which is selected and installed in accordance with Section 4 of AS/NZS 3500.1.
 
 **(3)** Where a site is served by a Network Utility Operator’s drinking water supply, appropriate containment protection must be selected and installed in accordance with Section 4 of AS/NZS 3500.1.

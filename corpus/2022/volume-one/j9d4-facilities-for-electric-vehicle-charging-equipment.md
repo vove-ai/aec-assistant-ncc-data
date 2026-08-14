@@ -10,8 +10,9 @@ supersedes: New for 2022
 building_classes_excluded: Class 1a, Class 1b, Class 2, Class 3, Class 4, Class 5, Class 6, Class 7b, Class 8, Class 9a, Class 9b, Class 9c, Class 10a, Class 10b, Class 10c
 defined_terms:
   - carpark
-  - Carpark
   - storey
+  - required
+  - Carpark
 ---
 
 # J9D4 — Facilities for electric vehicle charging equipment
@@ -19,7 +20,8 @@ defined_terms:
 **(1)** Subject to (2), a carpark associated with a Class 2, 3, 5, 6, 7b, 8 or 9 building must be provided with
 
 (a) electrical distribution boards dedicated to electric vehicle charging—
-(b)
+  (i) in accordance with Table J9D4 in each storey of the carpark; and
+  (ii) labelled to indicate use for electric vehicle charging equipment.
 
 **(2)** Electrical distribution boards dedicated to serving electric vehicle charging in a carpark must—
 
@@ -32,6 +34,8 @@ defined_terms:
   (ii) 10% of car parking spaces associated with a Class 5 or 6 building; or
   (iii) 20% of car parking spaces associated with a Class 3, 7b, 8 or 9 building; and
 (f)
+  (i) contain space of at least 36 mm width of DIN rail per outgoing circuit for individual sub-circuit for individual sub-circuit electricity metering to record electricity use of electric vehicle charging equipment; and
+  (ii) be labelled to indicate the use of the space required by (f) is for the future installation of metering equipment.
 
 > **Limitation**
 >
@@ -50,4 +54,4 @@ defined_terms:
 | 121 - 144 | 6 |
 | 145 - 168 | 7 |
 
->
+> (1) Where there are more than 168 carpark spaces per storey, one additional distribution board must be provided for each additional 24 spaces or part thereof.

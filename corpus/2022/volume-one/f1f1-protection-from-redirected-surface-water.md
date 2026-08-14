@@ -10,8 +10,11 @@ supersedes: "2019: FF1.1"
 building_classes_excluded: Class 1a, Class 1b, Class 10a, Class 10b, Class 10c
 defined_terms:
   - sitework
+  - water
 ---
 
 # F1F1 — Protection from redirected surface water
 
 **(1)** A building, including any associated sitework, is to be constructed in a way that protects
+
+(a) people and other property from the adverse effects of redirected surface water

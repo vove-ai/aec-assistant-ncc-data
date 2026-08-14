@@ -24,6 +24,7 @@ defined_terms:
   (i) the proposed building is modelled with the proposed services; and
   (ii) the proposed building is modelled with the same services as the reference building; and
 (b) in the proposed building,
+  (i) a thermal comfort level of between a Predicted Mean Vote of -1 to +1 is achieved across not less than 95% of the floor area of all occupied zones for not less than 98% of the annual hours of operation of the building; and
 (c) the building complies with the additional requirements in Specification 33.
 
 **(2)** The annual greenhouse gas emissions of the proposed building may be offset by—
