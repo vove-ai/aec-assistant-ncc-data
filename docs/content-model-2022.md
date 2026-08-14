@@ -630,8 +630,10 @@ of nothing in 2025 and will otherwise appear 11,520 times in the corpus.
 
 ⊕ **Correction to an earlier draft of this document, which reported "22–28% of declared state
 variations unresolved" and told Task 10 to count and ignore them. That was wrong twice over: the
-figure conflated two different things, and the advice would have silently dropped 128 state
-disapplications, 96 of them carrying substantive text.** A user greps `F4D10`, gets the national
+figure conflated two different things, and the advice would have silently dropped **129** state
+disapplications, 96 of them carrying substantive text.** (⊕ 129, not the 128 an earlier draft
+carried: the DELETE column below is 30 + 33 + 31 + 35, and all 129 are distinct on
+`(file, state)`.) A user greps `F4D10`, gets the national
 clause, and is never told it does not apply in NSW. In a compliance corpus that is the worst
 class of omission there is — the reader cannot tell that anything is missing.
 
@@ -702,10 +704,17 @@ B2P10-pressure.xml      (base sptc B2P9) -> TAS  ==>  B2P9-pressure-TAS.xml
 (the last also needs `.` ↔ `-` tolerance, the same normalisation §6 rule 4 needs.)
 
 **The rule that resolves everything: join on the host's base-or-accepted `sptc`/`num` against any
-`*-<STATE>.xml`, normalising case and `.`/`-`/`_`, and ignore `@variation`** — §5.1 already
+`*-<STATE>.xml`, normalising case and `.`/`-`/`_`/**space**, and ignore `@variation`** — §5.1 already
 explains why `@variation` cannot be part of this join, since it is absent on 4–7 state files per
 package. Measured resolution: by case-folded sibling stem 93 / 80 / 92 / 83; by identity join
 26 / 18 / 22 / 18; **unresolved 0 / 0 / 0 / 0**.
+
+⊕ **Space must be in that normalisation set**, and an earlier draft listed only `.`/`-`/`_`.
+Filenames such as `13-2-3-roofs and ceilings.xml` carry a literal space where the identity uses a
+hyphen. Folding only `.`/`-`/`_` shifts the stage split to 92 / 79 / 90 / 82 by stem and
+27 / 19 / 24 / 19 by identity join — the identity join absorbs every one of them, so the
+**432/432 outcome is unchanged either way**; only the split moves. State the normalisation
+completely so a reader reproducing the two stages separately gets the two stated numbers.
 
 ⊕ This also removes a self-contradiction: §5.1 enumerates `B1P5-pressure-TAS.xml`,
 `J8D4-…-NSW.xml` and `B2P9-pressure-TAS.xml` as existing files with genuine state text, quoting
@@ -894,10 +903,28 @@ the *stated rule* was not, and the cause was misattributed:
   stem has hyphens. The earlier draft called it opaque-asset-id residue. It is not; rule 4
   catches it, and it is the only file in the corpus needing rule 4.
 
-### ⊕ The figure join is edition-dependent, and that dissolves the "residue"
+### 6.1 ⊕ Sibling-pair selection — a CLASS, not a figure special case
 
-A wrapper can carry **two** `<image>` children, one marked `delete` and one marked `insert` —
-the NCC 2022 figure and its 2025 replacement. `image-creative-commons-by-nd.xml`, verbatim:
+⊕ An earlier draft framed this as "mechanism 3 applies to `<image>` children too". That is one
+instance of a general shape, and framing it narrowly is how `<table>` — the higher-stakes half —
+stayed undocumented.
+
+**The class: wherever an element has several same-name siblings and at least one carries an
+element-level mark (§1.1 mechanism 3), the base view *selects among them*.** Censused over every
+parent → child pair: **43 / 39 / 40 / 40** distinct parent→child combinations per package. The
+four where the selection picks a whole unit of content rather than a run of prose:
+
+| group | groups per package | what a wrong pick costs |
+|---|---|---|
+| `table-reference > table` | 9 / 9 / 9 / 9 | **numeric limits** — §6.2 |
+| `image-reference > image` | 5 / 5 / 6 / 9 | which figure |
+| `subclause > equation-block` | 1 each (`S38C3-spandrel-panel-r-value-calculation-method-2.xml`) | which formula |
+| `li > signage` | 1 each (`D3D28-signs-on-doors.xml`) | literal sign wording |
+
+The remainder (`row > entry` 660, `ol > li` 556, `callout > p` 33, `clause > subclause` 67, …) are
+ordinary prose, where the same rule applies and needs no special handling.
+
+`image-creative-commons-by-nd.xml`, verbatim, is the shape in miniature:
 
 ```xml
 <image-reference id="_e7bc3178-…">
@@ -909,17 +936,20 @@ the NCC 2022 figure and its 2025 replacement. `image-creative-commons-by-nd.xml`
 </image-reference>
 ```
 
-**§1.1's mechanism-3 rule applies to `<image>` children too.** Wrappers with more than one
-`<image>`: 5 / 5 / 6 / 9, every one tracked-marked (`delete+insert` 3/3/4/5, `-+insert` 2/2/2/4).
+Two consequences for **figures** an earlier draft got wrong:
 
-Two consequences an earlier draft got wrong:
-
-- **9 wrappers per package have *no* image in the base view** — their only `<image>` child is an
-  `insert` dated 2024, i.e. the figure itself is a 2025 addition. In vol-one these are the eight
-  F8D5c / F8D6a–c roof-space explanatory figures (shipped twice, once under the 2022 numbering
-  `F8D6a` and once under the 2025 numbering `10.8.4a`) **plus
-  `image-S37C8-permanent-external-vertical-shading–measurement-of-D,-W-and-H.xml`**.
-  ⊕ That last one was reported as unjoinable "residue" in two earlier drafts. It is not residue:
+- ⊕ **11 wrappers per package have *no* image in the base view**, not 9. The 9 came from a pass
+  that skipped wrappers already matching §6 rule 1, so two were never examined. Their only
+  `<image>` child is an `insert` dated 2024 — the figure itself is a 2025 addition. Volume-one's
+  eleven, in full: the eight F8D5c / F8D6a–c roof-space explanatory figures (shipped twice, once
+  under the 2022 numbering `F8D6a` and once under the 2025 numbering `10.8.4a`),
+  `image-S37C8-permanent-external-vertical-shading–measurement-of-D,-W-and-H.xml`, **plus the two
+  the earlier list missed** —
+  `image-10-8-3b-explanatory-example-ventilation-openings-calculation.xml` (insert 2024-03-12) and
+  `image-8-building-life-cycle-carbon-emissions.xml` (insert 2024-10-31), the latter being the
+  Section K embodied-carbon figure that §1.1 exists to keep out. HP's eleventh is
+  `image-S37C7b-…` in place of `image-S37C8-…`.
+  ⊕ `image-S37C8-…` was reported as unjoinable "residue" in two earlier drafts. It is not residue:
   in NCC 2022 it correctly has no figure at all.
 - **The one wrapper that genuinely fails every name rule is
   `image-S46C2-explanatory-calculation-of-fan-performance-ratio.xml`** (href `10145_0.2.0.png`) —
@@ -927,11 +957,25 @@ Two consequences an earlier draft got wrong:
   `image-S46C2-Calculation-of-fan-performance-ratio.png`, in all four packages. ⊕ "No name
   anywhere to join on" was true of the `href` only. Add the token rule and the residue is **0**.
 
-⊕ Extensions of the **distinct** resolved disk files, base view: `.svg` 217 / 182 / 216 / **319**,
-`.pdf` 2 each (the covers), `.eps` 0 / 0 / 1 / 3. (An earlier draft's `.eps (0/0/1/2)` was neither
-an href count nor a disk count, and its `.svg` HP figure double-counted: HP has 334 resolving
-wrappers but only **332 distinct files**, because `image-13-3-2a-orientation-sectors.svg` and
-`image-13-3-2b-method-of-measuring-p-and-h.svg` are each shared by two wrappers.)
+⊕ Extensions of the **distinct** resolved disk files, base view — recounted after the 11-wrapper
+correction above, which moves each `.svg` figure down by 2:
+
+| | vol-one | vol-two | vol-three | HP |
+|---|---|---|---|---|
+| `.svg` | 215 | 180 | 214 | **317** |
+| `.pdf` (covers) | 2 | 2 | 2 | 2 |
+| `.eps` | 0 | 0 | 1 | 3 |
+| **`.png`** | **1** | **1** | **1** | **1** |
+| **distinct total** | **218** | **183** | **218** | **323** |
+
+The `.png` is `image-S46C2-Calculation-of-fan-performance-ratio.png`, reached by the token rule
+above — ⊕ an earlier draft's extension list omitted it while the paragraph two lines up claimed
+the token rule resolved it, so the section contradicted itself.
+
+HP resolves **325 wrappers to 323 distinct files** in the base view, because
+`image-13-3-2a-orientation-sectors.svg` and `image-13-3-2b-method-of-measuring-p-and-h.svg` are
+each shared by two wrappers. (An earlier draft's 334 / 332 was the edition-blind pair; the −2
+reasoning was right, the base is 325 / 323.)
 
 `<image href>` shapes across all wrappers: publishing-session path (the norm),
 `ERROR_IN_RESOLVING_URI:<name>` (51–91 per package), and **absolute Windows authoring paths
@@ -946,15 +990,80 @@ leaked into the published XML** (55–89 per package) —
 Note the **nested `image > image`** (260 occurrences): an outer vector reference with a raster
 fallback inside it. Take the outer.
 
-⊕ **Which `Images/` files are unreferenced depends on the view, and an earlier draft's list was
-wrong in both directions.** In the **base (NCC 2022) view**: **15 / 15 / 16 / 19** per package.
-They are the eight 2025-only roof-space figures above, the `(OLD)` variants, the superseded
-`S37C7`/`S37C7b`/`S46C2` assets, and — correctly for a 2022 corpus — **`image-cc-by NCC 2025.svg`**,
-which is referenced only by the *inserted* `<image>` of the wrapper quoted above.
+⊕ **Which `Images/` files are unreferenced depends on the view.** In the **base (NCC 2022) view**:
+**16 / 16 / 17 / 20** per package (an earlier draft said 15/15/16/19 — see the cancelling-errors
+note below). Volume-one's sixteen are: the ten disk files behind the eleven base-empty wrappers
+above (the eight roof-space figures, `image-8-building-life-cycle-carbon-emissions.svg`,
+`image-10-8-3b-explanatory-Example-ventilation-openings-calculation.svg`), the three `(OLD)`
+recess-depth/wind-region variants, `image-S37C7-permanent-external-shading-measurment-of-P-G-and-H.svg`,
+`image-S37C7b-Permanent external vertical shading.jpg`, and **`image-cc-by NCC 2025.svg`**, which
+is reached only by the *inserted* `<image>` of the wrapper quoted above.
 
-The earlier draft's claim that "the `(OLD)` variants are never referenced" was exactly backwards:
-`image-creative-commons-by-nd (OLD).svg` **is** the NCC 2022 figure, reached through the `delete`-
-marked `<image>` that only the base view keeps. In the accepted view the two swap places.
+⊕ **The earlier draft's description was self-contradicting and is corrected here.** It listed "the
+`(OLD)` variants" and "S46C2" among the unreferenced while the two claims around it said the
+opposite. Measured, in the base view: `image-creative-commons-by-nd (OLD).svg` and
+`image-S37C7-permanent-external-shading-measurement-p-g-h (OLD).svg` **are referenced** — they are
+the NCC 2022 figures, reached through `delete`-marked `<image>` children the base view keeps — and
+so is the S46C2 `.png`. The unreferenced S37C7 asset is the **non-**`(OLD)` one. In the accepted
+view the pairs swap places.
+
+⊕ **Why 15 looked right.** Two errors nearly cancelled: 16 − 2 (the two base-empty wrappers never
+examined, so their files counted as referenced) + 1 (S46C2 counted unreferenced despite the token
+rule) = 15, in all four packages. A plausible number produced by transcribed prose is the failure
+mode §12 records — it is worth seeing once in arithmetic.
+
+### 6.2 ⊕ `table-reference > table` — the same class, carrying numeric limits
+
+Tables get exactly the treatment figures get, and they matter more, because a wrongly-selected
+table publishes wrong numbers as law. Measured as its own population (not inferred from figures):
+
+| | vol-one | vol-two | vol-three | HP |
+|---|---|---|---|---|
+| `table-reference` wrappers | 419 | 428 | 449 | 549 |
+| wrappers with **>1 `<table>`** | 9 | 9 | 9 | 9 |
+| …of which live-referenced from 2022 content | **8** | **8** | **8** | **8** |
+| wrappers with **no base-view `<table>`** | 34 | 32 | 32 | 32 |
+| …of which live-referenced from 2022 content | **10** | **10** | **10** | **10** |
+
+("Live-referenced" = reached by an inline `<table-reference conref>` that itself survives the base
+view, from a host whose own base `sptc` is non-empty.)
+
+**Document order does not identify the 2022 table.** Mark patterns in document order, volume-one:
+`insert+delete` 3 · `-+delete` 2 · `delete+insert` 2 · `insert+-` 2. **The insert comes first in 5
+of the 9.** A reader taking the first `<table>` gets the 2025 draft in the majority of cases.
+
+Verbatim from `table-J4D6b-maximum-wall-glazing-solar-admittance-class-2-common-area.xml`
+(`<num>` base `J4D6b`, accepted `J4D6c`):
+
+```
+<table> #1   xt:type="insert" 2024      -> NOT in the 2022 view
+    Climate zone | Eastern | Northern | Southern | Western    (solar admittance)
+    1 to 7       | 0.10    | 0.09     | 0.11     | 0.09
+    8            | 0.10    | 0.10     | 0.20     | 0.10
+
+<table> #2   xt:type="delete" 2024      -> IS the 2022 view
+    Climate zone | Eastern | Northern | Southern | Western
+    1            | 0.12    | 0.12     | 0.12     | 0.12
+    2            | 0.13    | 0.13     | 0.13     | 0.13
+    3            | 0.16    | 0.16     | 0.16     | 0.16
+    4            | 0.13    | 0.13     | 0.13     | 0.13
+```
+
+Taking the first table publishes a 2-row 2025 draft limit set as NCC 2022's 8-row one. The same
+shape occurs at `B1V1`, `C1V1` and `H1V1`.
+
+**Wrappers with no base-view table are the §1.3 drop rule at table level** — 10 per package are
+cited by live 2022 clauses, so the citation resolves to a wrapper that has no NCC 2022 content:
+
+```
+B1P1  -> table-B1P1a / B1P1b / B1P1c   minimum annual reliability indices (β)
+J3D14 -> table-J3D14c / J3D14d / J3D14e  heated-water load factor, energy factor, water-heater type
+```
+
+**Rule for `read-2022.mjs`:** apply §1.1 mechanism 3 to `<table>` children exactly as to `<image>`
+— select the base-view table, never the first; and where the base-view set is empty, treat the
+wrapper as absent from NCC 2022 and report the citing clause, the same way §5.3.2 treats a
+state-variation target that is 2025-only.
 
 ---
 
@@ -1141,9 +1250,10 @@ Measured across all four packages, `facet` has **four** attribute names:
 `building` is the 2025 `building`-attribute equivalent and clearly belongs in frontmatter.
 
 ⊕ **`climate` DOES have a 2025 equivalent** — an earlier draft said it had none, which was another
-conclusion kept while its number was checked. Measured: the 2025 packages carry `clause/@climate`
-(18 vol-one · 3 vol-two · 1 vol-three · 65 HP · 0 LHD), comma-joined on the clause itself, exactly
-parallel to `clause/@building`. So 2022's `facet/@climate` is the 2022 *form* of a concept the
+conclusion kept while its number was checked. Measured: the 2025 packages carry `@climate` on
+`clause` — 18 vol-one · 3 vol-two · 1 vol-three · **63** HP · 0 LHD — plus **2 on
+`clause-variation`** in HP (⊕ an earlier draft gave HP as 65, which is the total across both
+elements). Values are comma-joined on the element itself, exactly parallel to `clause/@building`. So 2022's `facet/@climate` is the 2022 *form* of a concept the
 2025 pipeline already meets — which strengthens rather than weakens the case for emitting it:
 "this clause applies only in climate zones 6–8" is scoping an AEC agent must not lose, and both
 editions should carry it the same way.
@@ -1256,6 +1366,8 @@ page/page            p+section+title ×24 · p+title ×20 · p+table-reference+t
 | cross-reference to inline | `<a>` | `<xref format="dita" type="…" href="…">` — already allowlisted |
 | figure | `<image-reference>` wrapping `<img src>` | `<image-reference conref>` in prose + a wrapper file with `<image alt href>`; **join on `@id`** (§6) |
 | table | `<table-reference>` wrapping `<table>` with `tr`/`td`/`th` | `<table-reference>` wrapping `<table><tgroup><colspec><thead\|tbody><row><entry>` — **CALS, not HTML** |
+| choosing *which* table | one `<table>` per wrapper | 9 wrappers per package hold **several** `<table>` children under §1.1 mechanism 3; the base view selects, and **document order is not the selector** — the insert is first in 5 of 9 (§6.2) |
+| a table that is not 2022 law | n/a | 32–34 wrappers per package have **no base-view `<table>`**; 10 of them are cited by live 2022 clauses (§6.2) |
 | subclause label | `clause > subclause > content > num + p` | **`clause > subclause > num + p`** — there is no `<content>` element in 2022 (0 occurrences); `num` and `p` are direct children, alongside a boilerplate `<title>SubClause</title>` |
 | section context | `<ncc-section num type>` ancestor | `<topicset section-num navtitle>` in `FlattenedFile.xml` (§4) |
 | part / specification | `part` / `specification` elements with `num` attribute | same element names, but `num` and `title` are **child elements**, not attributes |
@@ -1307,7 +1419,10 @@ page/page            p+section+title ×24 · p+title ×20 · p+table-reference+t
   made that mistake twice — once claiming `deleted-text` was `clause-variation`-only (it is on
   three elements), once reporting an attribute-name count read off a truncated listing. The
   corpus has **92 qualified attribute names / 85 excluding the seven `xmlns:*` pseudo-attributes /
-  81 local names**, over 455 distinct element@attribute pairs.
+  75 local names**, over 455 distinct element@attribute pairs. ⊕ An earlier draft said 81 local
+  names: that figure maps all 92 to local names, which silently re-admits the `xmlns:*` prefixes
+  (`ditaarch ns0 qxa srcattr xlink xt`) the same sentence excludes. Presented as 92 → 85 → 81 it
+  reads as a further narrowing; the real one is **75**.
 - **`conref` means two different things.** Bare filename inside `FlattenedFile.xml`
   (1,217 in vol-one); publishing-session path everywhere else.
 - **Broken references are shipped in the source**, not introduced by us:
@@ -1358,7 +1473,8 @@ rather than transcribed:
 |---|---|
 | 1 | §1.1 (mechanism 2 + 3), §1.2 (renumber direction), §4.1 (F3→F1 narrative), §5 · §5.1 · §5.3 (state variations), §6 (figure rules), §8 (amendment string), §9.1 (`facet`), §10 (`building`), §11 (namespace rule) |
 | 2 | §1.1 (carrier elements), §5.0 (**new** — `deleted-text` census), §5.2 (`subclause` carrier), §5.3 (base view on pointers), §5.4 (**new** — `part-variation`), §6 (rule statement, `.eps`, unreferenced), §8 (string claim), §10 (two new rows + one rewritten), §11 (attribute bullet), §12 (ledger) |
-| 3 | §5.0 (`subclause` has a `<title>`), §5.3 + **§5.3.1 · §5.3.2** (all pointers resolve; the real gap class is the *target*'s membership), §5.4 (47/47 resolve · 73 identities · which source to read), §6 (edition-dependent `<image>` selection; residue dissolved; unreferenced recomputed), §9.1 (`climate` **does** exist in 2025), §11 (value predicate; `longdescref`; `summary`; census figure), §12 (this ledger) |
+| 3 | §5.0 (`subclause` has a `<title>`), §5.3 + **§5.3.1 · §5.3.2** (all pointers resolve; the real gap class is the *target*'s membership), §5.4 (47/47 resolve · 73 identities · which source to read), §6 (edition-dependent `<image>` selection; residue dissolved; unreferenced recomputed), §9.1 (`climate` **does** exist in 2025), §11 (value predicate; `longdescref`; `summary`; census figure), §12 (ledger) |
+| 4 | §5.3 (129 not 128), §5.3.1 (space in the normalisation set), **§6.1** (sibling-pair selection reframed as a class; base-empty 11 not 9), **§6.2** (**new** — `table-reference > table`, the numeric-limit half), §6 (extension table incl. `.png`; HP 325/323; unreferenced 16/16/17/20), §9.1 (HP `@climate` 63 + 2), §10 (two new table rows), §11 (75 local names), §12 (this ledger) |
 
 Reproduced exactly on independent re-derivation and **not** touched: the root-element census
 (§2), the 82-element inventory (§9), the package overlap (§3), the tracked-change totals, the
