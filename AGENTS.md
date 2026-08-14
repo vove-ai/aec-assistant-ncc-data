@@ -331,9 +331,13 @@ it, because that would be a guess published as law. So in those clauses a requir
 level deeper than the Code prints it, or under no letter at all, and **`J5D2(1)(a)` as printed here
 is not necessarily `J5D2(1)(a)` as published**. Quote the words and the clause; verify a
 sub-paragraph letter at `web_url` before citing one. Affected clauses are named in the build
-report's BASE-VIEW RETENTIONS block. Two of them are also short: `J5D2` gives two of the four
-exclusions the published clause lists (the third is missing its opening words and the fourth,
-"parts of buildings that cannot be fully enclosed", is not in the source at all).
+report's BASE-VIEW RETENTIONS block. `J5D2` is the worst of them and the one to know by name: it
+prints `(a)` **twice** — the first is the stem the published Code sets in the paragraph
+("elements forming the envelope of a Class 2 to 9 building, other than—"), the second is the first
+of its exclusions — and it gives three of the four exclusions the published clause lists, the third
+without its opening words ("in a Class 3 or Class 5 to 9 building,") and the fourth ("parts of
+buildings that cannot be fully enclosed") not at all, because the source does not carry it. Read
+J5D2 at its `web_url` before answering on it.
 
 **Six cross-references print an NCC 2025 designation.** `F1D11`, `B1P7`, `B2P12`, `B3P8`, `B6D7`
 and `B7P5` appear in NCC 2022 text that the ABCB itself publishes that way — the source carries no
