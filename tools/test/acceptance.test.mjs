@@ -290,8 +290,8 @@ for (const ed of editions) {
     const contents = new Map(files(ed).map(f => [f, read(f)]));
     const embedders = new Map();          // figure designation -> files embedding it
     for (const [f, c] of contents) {
-      // `!?` because a figure in a format no renderer draws inline (.pdf, .eps — 12 assets, all
-      // 2022) ships as a LINK carrying the same caption. It is still embedded here and still
+      // `!?` because a figure in a format no renderer draws inline (.pdf, .eps — measured over the
+      // built corpus, 10 distinct URLs, all 2022) ships as a LINK carrying the same caption. It is still embedded here and still
       // reached by one grep; only the leading `!` differs. FIGURE_REF requires the prose form
       // "see Figure …", so widening this cannot make a reference count as its own embedder.
       for (const m of c.matchAll(/!?\[Figure([^\]]*)\]/g)) {

@@ -18,10 +18,10 @@ import fs from 'node:fs';
 import {
   EDITIONS, KNOWN_EDITIONS, NULL_WEB_URL_CLAUSES, PARITY, PARITY_UNAVAILABLE, inScope,
   forwardRefCheck, identityUnstatedError, isWholeEdition, nullWebUrlException, parityCheck, parseArgs, planReconcile, report, resolveUniqueness,
-  warningCategory, withholdPartialGlossary,
+  warningCategory, withholdPartialGlossary, withholdPartialIndexes,
 } from '../src/build.mjs';
 import { DOCUMENTS_2025, readDocument2025 } from '../src/read-2025.mjs';
-import { SOURCE_FORWARD_REFS } from '../src/index.mjs';
+import { buildIndexes, SOURCE_FORWARD_REFS } from '../src/index.mjs';
 import { OMISSION_REASONS } from '../src/read-2022.mjs';
 import { normalizeUnit, figureUrlPrefix } from '../src/normalize.mjs';
 import { emitUnit } from '../src/emit.mjs';
@@ -540,6 +540,86 @@ test('the guard does not mutate what it is handed — a report may still describ
   withholdPartialGlossary(args);
   assert.deepEqual([...args.write.keys()], before);
   assert.deepEqual([...args.ownedDirs].sort(), ['glossary', 'volume-two']);
+});
+
+/* -- a partial run does not rewrite the edition index (R54) -- */
+
+// One entry per shape the index cares about, so a narrowed index is visibly narrowed.
+const INDEXED = ed => [
+  { relPath: `${ed}/volume-two/h6d1-x.md`, kind: 'clause', id: 'H6D1', term: null, title: 'X', state: null },
+  { relPath: `${ed}/glossary/abcb.md`, kind: 'glossary', id: null, term: 'ABCB', title: 'ABCB', state: null },
+];
+
+test('R54: a slice does not rewrite the edition index — on EITHER axis', () => {
+  // THE MEASURED FAILURE, on the real corpus, before this guard — each from a 3,101-unit index:
+  //   --edition 2025 --volumes volume-two  ->  321 units, 2,796 lines deleted
+  //   --edition 2025 --sections A          ->  303 units, 2,806 lines deleted
+  // Nothing fired either time, and for --volumes the glossary guard was firing correctly in the
+  // same run: the two are the same class, and only one of them was covered. A narrowed index
+  // answers "no such clause" for law that is sitting in the corpus.
+  const partial = withholdPartialIndexes([{ editionKey: '2025', wholeEdition: false, indexEntries: INDEXED('2025') }]);
+  assert.deepEqual(partial.withheld, ['2025/INDEX.md']);
+  assert.equal(partial.units.size, 0, 'a withheld edition contributes no units, so no file is produced for it');
+
+  const whole = withholdPartialIndexes([{ editionKey: '2025', wholeEdition: true, indexEntries: INDEXED('2025'), omittedClauses: [] }]);
+  assert.deepEqual(whole.withheld, []);
+  assert.deepEqual([...whole.units.keys()], ['2025']);
+
+  // Mixed run: `--edition 2022,2025 --volumes volume-two` is whole for neither, but a run can also
+  // be whole for one edition and not the other, and the withholding is per edition.
+  const mixed = withholdPartialIndexes([
+    { editionKey: '2022', wholeEdition: true, indexEntries: INDEXED('2022'), omittedClauses: [{ doc: 'volume-three', clause: 'C1O1', reason: 'map-identity-unresolved' }] },
+    { editionKey: '2025', wholeEdition: false, indexEntries: INDEXED('2025') },
+  ]);
+  assert.deepEqual(mixed.withheld, ['2025/INDEX.md']);
+  assert.deepEqual([...mixed.units.keys()], ['2022']);
+  assert.equal(mixed.omissions.get('2022').length, 1, 'the omission list rides with the edition it belongs to');
+});
+
+test('R54: the ROOT index is still written by a slice — it is a census, not a unit list', () => {
+  // index.mjs builds corpus/INDEX.md from a directory walk taken after writing, precisely so a
+  // partial run can refresh it: a slice that deleted a stale file has to be able to correct its
+  // counts, and the other edition's row comes from the disk rather than from this run.
+  const indexes = withholdPartialIndexes([{ editionKey: '2025', wholeEdition: false, indexEntries: INDEXED('2025') }]);
+  const files = buildIndexes(indexes.units, { tree: [{ dir: '2022/volume-one', files: 7 }, { dir: '2025/volume-two', files: 3 }] });
+  assert.deepEqual(files.map(f => f.relPath), ['INDEX.md'], 'the root census, and no edition index');
+  assert.match(files[0].content, /\| 2022 \| 7 \|/);
+  assert.match(files[0].content, /\| 2025 \| 3 \|/);
+});
+
+test('R54: withholding FAILS CLOSED — an edition that does not state it is whole is withheld', () => {
+  // Withholding leaves a complete, if older, index in place; narrowing destroys it. So the absent
+  // field must take the harmless branch, not the destructive one.
+  const out = withholdPartialIndexes([{ editionKey: '2025', indexEntries: INDEXED('2025') }]);
+  assert.deepEqual(out.withheld, ['2025/INDEX.md']);
+  assert.equal(out.units.size, 0);
+});
+
+test('R54: the report says the index was withheld, on the same predicate that withholds it', () => {
+  // A report that claimed the index had been refreshed while the guard withheld it would send
+  // somebody to a stale file believing it current — so both read `wholeEdition`, not two copies of
+  // the rule.
+  const built = {
+    editionKey: '2025',
+    failures: [],
+    wholeEdition: false,
+    editionDirs: new Set(['volume-two']),
+    ownedDirs: new Set(['volume-two']),
+    unresolvedOther: [],
+    stats: {
+      perDoc: [{ key: 'volume-two', read: 321, scoped: 321, figures: 0, warnings: 0 }],
+      kinds: new Map([['clause', 276]]),
+      warnings: new Map(),
+      figures: new Set(),
+      webUrl: new Map([['clause', { resolved: 276, total: 276 }]]),
+      parity: new Map(),
+      duplicates: 0, merges: [], paths: 321,
+    },
+  };
+  const text = report(built, { written: 321, removedFiles: 0, removedDirs: 0, kept: 3102 }, { volumes: ['volume-two'], sections: null });
+  assert.match(text, /index\s+NOT WRITTEN — corpus\/2025\/INDEX\.md is left exactly as it is/);
+  assert.doesNotMatch(report({ ...built, wholeEdition: true }, null, { volumes: null, sections: null }),
+    /INDEX\.md is left exactly as it is/, 'and says nothing at all on a whole-edition run');
 });
 
 const RECONCILE = {

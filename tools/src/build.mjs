@@ -705,6 +705,48 @@ export function withholdPartialGlossary({ selected, all, write, ownedDirs, gloss
   };
 }
 
+/**
+ * R54 — a run that cannot see the whole edition does not rewrite that edition's INDEX.
+ *
+ * `corpus/{edition}/INDEX.md` is one line per FILE and index.mjs builds it from the units the run
+ * emitted (`write.keys()`), so a slice narrows it to the slice. Measured on the real corpus before
+ * this guard, both axes, each from a 3,101-unit index:
+ *
+ *   `--edition 2025 --volumes volume-two`  ->  321 units, 2,796 lines deleted
+ *   `--edition 2025 --sections A`          ->  303 units, 2,806 lines deleted
+ *
+ * Nothing fired either time. It is the same class as the glossary bug `withholdPartialGlossary`
+ * covers — a whole-corpus artifact rewritten from a partial view — and it matters for the same
+ * reason: the index is what an agent greps when it knows the designation but not the wording, so a
+ * narrowed one answers "no such clause" for law that is sitting in the corpus. Two-axis for the
+ * same reason too, so it shares `isWholeEdition` rather than re-deriving it.
+ *
+ * The ROOT `corpus/INDEX.md` is deliberately NOT withheld: index.mjs builds it from a directory
+ * census taken after writing, so it describes what is on disk rather than what this run emitted,
+ * and a slice that deleted a stale file has to be able to correct its counts.
+ *
+ * FAILS CLOSED: an edition that does not positively state `wholeEdition` is withheld. Withholding
+ * leaves a complete, if older, index in place; narrowing destroys it.
+ *
+ * @param {Array<{editionKey: string, wholeEdition?: boolean, indexEntries?: Array,
+ *                omittedClauses?: Array}>} built
+ * @returns {{units: Map<string, Array>, omissions: Map<string, Array>, withheld: string[]}}
+ *   `units` and `omissions` are buildIndexes' inputs, carrying only the editions this run may
+ *   rewrite; `withheld` names the index files it must not, corpus-relative — the record of the
+ *   decision, which the tests assert on and which `report` announces per edition off the same flag.
+ */
+export function withholdPartialIndexes(built) {
+  const units = new Map();
+  const omissions = new Map();
+  const withheld = [];
+  for (const b of built) {
+    if (!b.wholeEdition) { withheld.push(`${b.editionKey}/INDEX.md`); continue; }
+    units.set(b.editionKey, b.indexEntries ?? []);
+    omissions.set(b.editionKey, b.omittedClauses ?? []);
+  }
+  return { units, omissions, withheld: withheld.sort(byCodepoint) };
+}
+
 /* ============================================================================
  * Deletion — what a run owns
  * ========================================================================= */
@@ -1012,6 +1054,7 @@ function buildEdition(editionKey, opts) {
   return {
     editionKey,
     failures,
+    wholeEdition,
     write: glossaryGuard.write,
     producible,
     editionDirs: new Set([...ed.documents.map(d => d.key), 'glossary']),
@@ -1171,6 +1214,15 @@ export function report(built, io, opts) {
   out.push(`${pad('uniqueness', 22)}${s.paths} paths · ${s.duplicates} identical duplicate${s.duplicates === 1 ? '' : 's'} · ${s.merges.length} merged`);
   for (const m of s.merges) out.push(`${pad('', 22)}merged ${m.senses} senses into ${m.relPath} (first seen in ${m.docKey})`);
   out.push(...glossaryLines(s));
+  // R54, and stated with the SAME predicate withholdPartialIndexes acts on, so the report and the
+  // filesystem can never disagree about whether the index was refreshed.
+  if (!built.wholeEdition) {
+    out.push(`${pad('index', 22)}NOT WRITTEN — corpus/${built.editionKey}/INDEX.md is left exactly as it is`,
+      ...wrap('The edition index is one line per file and is built from the units a run emits, so a slice '
+        + 'would narrow it to the slice — and it is what an agent greps when it knows the designation but '
+        + 'not the wording. Rebuild the whole edition to refresh it. The root corpus/INDEX.md is a '
+        + 'directory census and is still rewritten.', ' '.repeat(22)));
+  }
   out.push(io
     ? `${pad('files', 22)}written ${io.written} · deleted ${io.removedFiles} · directories removed ${io.removedDirs} · left in place ${io.kept}`
     : `${pad('files', 22)}NOTHING WRITTEN — this run failed its assertions, so the previous corpus is untouched`);
@@ -1534,12 +1586,12 @@ export async function main(argv) {
   }
 
   const reports = built.map(b => report(b, applyPlan(b), opts));
-  const unitsByEdition = new Map(built.map(b => [b.editionKey, b.indexEntries]));
   // R51: the corpus omits rather than stubs, so `{edition}/INDEX.md` is the only artifact under
   // corpus/ that can tell a browsing agent a clause is deliberately absent. The build report says
   // it too, but nothing searching the corpus ever reads a build report.
-  const omissionsByEdition = new Map(built.map(b => [b.editionKey, b.omittedClauses ?? []]));
-  for (const { relPath, content } of buildIndexes(unitsByEdition, { tree: corpusTree(), omissions: omissionsByEdition })) {
+  // R54: …and a slice does not rewrite that index from the units it happened to emit.
+  const indexes = withholdPartialIndexes(built);
+  for (const { relPath, content } of buildIndexes(indexes.units, { tree: corpusTree(), omissions: indexes.omissions })) {
     const file = toFsPath(relPath);
     fs.mkdirSync(path.dirname(file), { recursive: true });
     fs.writeFileSync(file, content);

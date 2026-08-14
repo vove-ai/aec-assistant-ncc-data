@@ -8,4 +8,72 @@ jobs:
       - uses: actions/setup-node@v4
         with: { node-version-file: .node-version, cache: npm }
       - run: npm ci
-      - run: npm test
+
+      # The source packages, keyed on the digests they are pinned to, so a checksum change
+      # re-downloads and anything else is served from cache. `npm run fetch` verifies every
+      # SHA-256 either way — the cache cannot substitute a package.
+      - uses: actions/cache@v4
+        with:
+          path: .cache/zips
+          key: ncc-zips-${{ hashFiles('tools/checksums.json') }}
+      - run: npm run fetch
+
+      # Tests run AFTER fetch, and the skip count must be zero.
+      #
+      # Every test that reads the source XML is written `{ skip: !have }` so a contributor without
+      # `.cache/` still gets a useful run — which meant CI, which never fetched, skipped 77 of them
+      # INCLUDING every corpus-scale invariant, and reported green. A suite that asserts nothing
+      # about 6,000 files while reporting success is this repository's most-repeated failure mode,
+      # so the count is asserted rather than assumed. Reading it back from the reporter also fails
+      # loudly if the output shape ever changes, instead of quietly disabling the guard.
+      - name: test — and nothing may skip
+        run: |
+          set -o pipefail
+          npm test 2>&1 | tee test-output.txt
+          skipped="$(sed -n 's/^[^ ]* skipped \([0-9][0-9]*\)$/\1/p' test-output.txt | tail -n1)"
+          if [ -z "$skipped" ]; then
+            echo "::error::no skip count in the test output — this guard is not running"
+            exit 1
+          fi
+          if [ "$skipped" != "0" ]; then
+            echo "::error::$skipped test(s) skipped. Almost certainly the source packages are absent, which"
+            echo "::error::silently turns every corpus-scale assertion into a pass. Check the fetch step."
+            grep -n "skipped" test-output.txt | head -40
+            exit 1
+          fi
+
+      # The drift guard: the committed corpus must be exactly what the toolchain produces. Both
+      # halves are needed — `git diff` cannot see a file the build newly created.
+      - run: npm run build
+      - name: the committed corpus is exactly what the build produces
+        run: |
+          git diff --exit-code -- corpus/
+          untracked="$(git ls-files --others --exclude-standard -- corpus/)"
+          if [ -n "$untracked" ]; then
+            echo "::error::the build produced files that are not committed:"
+            echo "$untracked"
+            exit 1
+          fi
+
+      # A partial build must leave the committed corpus untouched, on BOTH scope axes.
+      #
+      # A full build is too slow for `npm test`, so no test exercises the real slice paths and
+      # every defect in one has been found by a human reading output: `--volumes` narrowing the
+      # glossary from a one-document view, `forwardRefCheck` asserting on a slice, and
+      # `{edition}/INDEX.md` being rewritten from the slice's own units (3,101 units -> 321 on
+      # `--volumes volume-two`, -> 303 on `--sections A`). Each was silent, and each shows up here
+      # as a dirty tree.
+      - name: a slice rebuilds byte-identically and rewrites nothing outside itself
+        run: |
+          for slice in "--edition 2025 --volumes volume-two" "--edition 2022 --sections A"; do
+            echo "::group::build $slice"
+            node tools/src/build.mjs $slice
+            echo "::endgroup::"
+            git diff --exit-code -- corpus/ || { echo "::error::build $slice changed the corpus"; exit 1; }
+            untracked="$(git ls-files --others --exclude-standard -- corpus/)"
+            if [ -n "$untracked" ]; then
+              echo "::error::build $slice produced files that are not committed:"
+              echo "$untracked"
+              exit 1
+            fi
+          done
