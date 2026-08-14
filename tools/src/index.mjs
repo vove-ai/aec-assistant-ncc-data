@@ -48,6 +48,36 @@ export const AMENDMENTS = new Map([
 
 const SEAM = '_Not yet determined — measure this edition before stating an amendment for it._';
 
+/**
+ * Characteristics of an edition's SOURCE that a reader of the corpus would otherwise take for our
+ * error. Stated in the edition index because that is the one generated file a browsing agent reads
+ * before the clauses, and because the alternative — rewriting the Code so it looks consistent —
+ * puts an invention where law belongs.
+ *
+ * The 2022 entry is Task 14's measurement. NCC 2022's packages are dual-state editorial files, and
+ * in five places the base text carries a cross-reference whose designation was updated to the NCC
+ * 2025 numbering WITHOUT a tracked change, so no base-view transform can recover the 2022 string —
+ * it is not in the source. The 2022 form of each was read off the renumbering the target file
+ * records in its own `<num>`/`<sptc>` (e.g. base `F1D8`, accepted `F1D11`).
+ *
+ * Re-measured after R51: a sixth, `B1P7`, existed only inside `volume-one/b1d1`, which is one of
+ * the omitted clauses. Listing it would have sent a reader to a file that is not there.
+ */
+export const SOURCE_FORWARD_REFS = new Map([
+  ['2022', {
+    note: 'Five cross-references in the NCC 2022 base text name the NCC 2025 designation of their '
+      + 'target. They are untracked in the source, so they are reproduced as the Code prints them '
+      + 'rather than rewritten. The 2022 form of each is given here.',
+    refs: [
+      ['F1D11', 'F1D8', 'volume-one/f1d8-subfloor-ventilation.md — Table F1D8 column header'],
+      ['B2P12', 'B2P11', 'volume-three/b2d1-deemed-to-satisfy-provisions.md'],
+      ['B3P8', 'B3P7', 'volume-three/b3d1-deemed-to-satisfy-provisions.md'],
+      ['B6D7', 'B6D6', 'volume-three/b6d1-deemed-to-satisfy-provisions.md'],
+      ['B7P5', 'B7P4', 'volume-three/b7d1-deemed-to-satisfy-provisions.md'],
+    ],
+  }],
+]);
+
 /** Codepoint sort. Never localeCompare — locale-dependent order is not reproducible. */
 const byCodepoint = (a, b) => (a < b ? -1 : a > b ? 1 : 0);
 
@@ -68,23 +98,28 @@ const byTuple = (a, b) => {
  *   file count, for the WHOLE corpus including editions this run did not build.
  * @returns {Array<{relPath: string, content: string}>} root index first, then editions sorted.
  */
-export function buildIndexes(unitsByEdition, { tree = [], sourceRelease = SOURCE_RELEASE, amendments = AMENDMENTS } = {}) {
+export function buildIndexes(unitsByEdition, {
+  tree = [], sourceRelease = SOURCE_RELEASE, amendments = AMENDMENTS, omissions = new Map(),
+} = {}) {
   if (!(unitsByEdition instanceof Map)) {
     throw new Error('index: unitsByEdition must be a Map<edition, entries[]> — a plain object has no guaranteed key order');
+  }
+  if (!(omissions instanceof Map)) {
+    throw new Error('index: omissions must be a Map<edition, records[]> — a plain object has no guaranteed key order');
   }
   const editions = [...unitsByEdition.keys()].sort(byCodepoint);
   return [
     { relPath: 'INDEX.md', content: rootIndex(editions, tree, sourceRelease, amendments) },
     ...editions.map(ed => ({
       relPath: `${ed}/INDEX.md`,
-      content: editionIndex(ed, unitsByEdition.get(ed) ?? [], sourceRelease, amendments),
+      content: editionIndex(ed, unitsByEdition.get(ed) ?? [], sourceRelease, amendments, omissions.get(ed) ?? []),
     })),
   ];
 }
 
 /* -- the per-edition map ------------------------------------------------------ */
 
-function editionIndex(edition, entries, sourceRelease, amendments) {
+function editionIndex(edition, entries, sourceRelease, amendments, omitted = []) {
   const seen = new Set();
   const groups = new Map();       // directory -> lines
   const kinds = new Map();
@@ -134,12 +169,55 @@ function editionIndex(edition, entries, sourceRelease, amendments) {
     `Units: ${entries.length}${kindSummary ? ` — ${kindSummary}` : ''}`,
     `Source dataset: alvar-ncc-data release \`${sourceRelease}\``,
     `Amendment state: ${amendmentLine(edition, amendments)}`,
+    ...knownGaps(edition, omitted),
   ];
   for (const dir of [...groups.keys()].sort(byCodepoint)) {
     const rows = groups.get(dir).sort((a, b) => byTuple(a.key, b.key));
     out.push('', `## ${dir} (${rows.length})`, '', ...rows.map(r => r.line));
   }
   return `${out.join('\n')}\n`;
+}
+
+/**
+ * What this edition does NOT contain, and what its source prints oddly.
+ *
+ * The corpus omits rather than stubs, so without this section the only trace of a missing clause
+ * is the build report — which an agent searching `corpus/` never sees. Both halves are generated:
+ * the omissions come from the run that produced the index, the forward references from the
+ * measured constant above. Emitted only when there is something to say, so an edition with a clean
+ * source carries no boilerplate.
+ */
+function knownGaps(edition, omitted) {
+  const out = [];
+  if (omitted.length) {
+    out.push('',
+      `Not published here: ${omitted.length} clause${omitted.length === 1 ? '' : 's'} the source packages`,
+      'cannot supply — the map names a clause the package does not contain, or the clause is NCC 2025',
+      'only. Each is ruled on in OMITTED_2022_CLAUSES with its evidence and printed by the build. Cite',
+      'the live Code for these; nothing here stands in for them.');
+    for (const o of [...omitted].sort((a, b) => byTuple([a.doc, a.clause], [b.doc, b.clause]))) {
+      out.push(`  ${o.doc} ${o.clause} — ${o.reason}`);
+    }
+  }
+  const fwd = SOURCE_FORWARD_REFS.get(edition);
+  if (fwd) {
+    out.push('', ...wrapNote(fwd.note));
+    for (const [printed, actual, where] of fwd.refs) {
+      out.push(`  prints ${printed} — this edition's clause is ${actual} — ${where}`);
+    }
+  }
+  return out;
+}
+
+/** Hard-wrap a note at 96 columns on word boundaries, so the index stays readable in a terminal. */
+function wrapNote(text) {
+  const lines = [];
+  let line = '';
+  for (const word of String(text).split(/\s+/).filter(Boolean)) {
+    if (line && `${line} ${word}`.length > 96) { lines.push(line); line = word; } else line = line ? `${line} ${word}` : word;
+  }
+  if (line) lines.push(line);
+  return lines;
 }
 
 /* -- the root census ---------------------------------------------------------- */

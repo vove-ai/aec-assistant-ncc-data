@@ -214,3 +214,53 @@ test('nothing environment-dependent reaches an index: no timestamps, no host pat
     assert.ok(!/\bms\b|\bseconds\b/.test(content), `${relPath}: a duration`);
   }
 });
+
+/* -- R51: what the edition does NOT contain ---------------------------------- */
+
+test('the edition index states the clauses the source cannot supply', () => {
+  // The corpus OMITS rather than stubs, so nothing under corpus/ would otherwise say a clause is
+  // deliberately absent — the build report says it, and nothing searching the corpus reads a
+  // build report. This section is the only trace an agent can find.
+  const out = buildIndexes(new Map([['2022', [A5G7_2022]]]), {
+    tree: TREE,
+    omissions: new Map([['2022', [
+      { doc: 'volume-three', clause: 'C1O1', reason: 'map-identity-unresolved' },
+      { doc: 'volume-one', clause: 'D3D31', reason: 'clause-is-2025-only' },
+    ]]]),
+  });
+  const idx = out.find(o => o.relPath === '2022/INDEX.md').content;
+  assert.match(idx, /Not published here: 2 clauses/);
+  assert.match(idx, /^ {2}volume-one D3D31 — clause-is-2025-only$/m);
+  assert.match(idx, /^ {2}volume-three C1O1 — map-identity-unresolved$/m);
+  // Document order is not the reader's order: the list sorts, so the index is a pure function of
+  // its input and CI's byte-diff cannot fail on the order two documents happened to be read in.
+  assert.ok(idx.indexOf('volume-one D3D31') < idx.indexOf('volume-three C1O1'));
+  assert.match(idx, /Cite\nthe live Code for these; nothing here stands in for them\./);
+});
+
+test('an edition with nothing omitted carries no gap boilerplate', () => {
+  const idx = buildIndexes(new Map([['2025', [A5G7]]]), { tree: TREE })
+    .find(o => o.relPath === '2025/INDEX.md').content;
+  assert.doesNotMatch(idx, /Not published here/);
+  // …and 2025 has no forward-reference note either, because its source has none.
+  assert.doesNotMatch(idx, /cross-references in the NCC/);
+});
+
+test('the 2022 index records the forward references its source prints', () => {
+  // Five untracked NCC 2025 designations survive in NCC 2022 base text. They are reproduced as the
+  // Code prints them — inventing a 2022 designation would be worse — so the index has to say so,
+  // and has to give the reader the designation this edition actually uses.
+  const idx = buildIndexes(new Map([['2022', [A5G7_2022]]]), { tree: TREE })
+    .find(o => o.relPath === '2022/INDEX.md').content;
+  assert.match(idx, /Five cross-references in the NCC 2022 base text/);
+  assert.match(idx, /prints F1D11 — this edition's clause is F1D8 —/);
+  for (const t of ['B2P12', 'B3P8', 'B6D7', 'B7P5']) assert.match(idx, new RegExp(`prints ${t} — `));
+  // B1P7 was a sixth until R51 omitted the only file it appeared in. Listing it would send a
+  // reader to a file that is not there.
+  assert.doesNotMatch(idx, /prints B1P7/);
+});
+
+test('omissions must be a Map — a plain object has no guaranteed key order', () => {
+  assert.throws(() => buildIndexes(new Map([['2025', [A5G7]]]), { tree: TREE, omissions: {} }),
+    /omissions must be a Map/);
+});

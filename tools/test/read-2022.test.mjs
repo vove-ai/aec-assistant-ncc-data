@@ -17,6 +17,8 @@ import {
   applyBaseView,
   baseViewKeeps,
   readPackage2022,
+  OMITTED_2022_CLAUSES,
+  omittedClause,
 } from '../src/read-2022.mjs';
 import { normalizeUnit } from '../src/normalize.mjs';
 
@@ -917,4 +919,139 @@ test('the leading-token figure rule refuses an ambiguous match rather than guess
     'Images/image-A1G1-first.svg': '<svg/>',
     'Images/image-A1G1-second.svg': '<svg/>',
   });
+});
+
+/* ================================================================= *
+ * 7. R51 — the clauseref identity join, and the omissions it forces.  *
+ * ================================================================= */
+
+// A clauseref that STATES its target's identity, so these tests exercise the production path
+// rather than the "identity not stated" tolerance the older fixtures rely on.
+const identifiedRef = (conref, clauseId, titleId) =>
+  `<clauseref outputclass="clausref-ncc"><clause conref="${conref}" id="${clauseId}" outputclass="ncc-clause">`
+  + `<sptc/><title id="${titleId}"/><archive-num/></clause></clauseref>`;
+
+const mapWith = refs => `<?xml version="1.0"?><abcb-map ${XT} publishing-id="vol1" publishing-year="2025" short-title="Volume One">`
+  + '<title>NCC 2025 Volume One</title>'
+  + '<topicset navtitle="Governing requirements" section-num="Section A" summary="Section A abstract.">'
+  + '<part outputclass="ncc-part" id="_A1"><num>A1</num><title>Interpreting the NCC</title>'
+  + '<intro-part><p>Part overview prose.</p></intro-part>'
+  + `<subtopic subtopic-type="governance">${refs}</subtopic></part></topicset></abcb-map>`;
+
+/** A clause file whose root @id and <title> @id are both spelled explicitly. */
+const identifiedClause = (sptc, title, body, clauseId, titleId) =>
+  `<?xml version="1.0"?><?Xpress productLine="ncc-clause" ?><clause ${XT} id="${clauseId}" outputclass="ncc-clause">`
+  + `<sptc>${sptc}</sptc><title id="${titleId}">${title}</title><archive-num/>`
+  + `<subclause outputclass="subclause"><title>SubClause</title><num>1</num><p>${body}</p></subclause></clause>`;
+
+test('R51: both stated identities disagree and the package lacks the target — the clause is OMITTED', () => {
+  // The measured defect, in miniature: the map names B1D1 and states an identity the package's
+  // file of that name does not carry, because that file is a DIFFERENT publication's B1D1.
+  // Emitting it is how corpus/2022/volume-one/b1d1 came to publish Volume Three's cold-water
+  // provisions under "NCC 2022 V1 B1D1".
+  withFixture(dir => {
+    const diagnostics = {};
+    const units = readPackage2022(dir, VOL1, { diagnostics });
+    assert.equal(units.filter(u => u.id === 'B1D1').length, 0, 'the wrong-publication clause is not emitted');
+    assert.deepEqual(diagnostics.omittedClauses.map(o => [o.clause, o.reason]),
+      [['B1D1', 'map-identity-unresolved']]);
+    assert.match(diagnostics.omittedClauses[0].evidence, /Volume THREE/,
+      'the ruling travels with the omission, so the report can print why');
+    assert.equal(diagnostics.unfiredOmissions.length, 2,
+      'the other two volume-one rulings did not fire here — RECORDED, not thrown, for the build to assert');
+  }, {
+    'XMLs/FlattenedFile.xml': mapWith(identifiedRef('B1D1-deemed-to-satisfy-provisions.xml', '_wanted', '_wantedTitle')),
+    'XMLs/B1D1-deemed-to-satisfy-provisions.xml':
+      identifiedClause('B1D1', 'Deemed-to-Satisfy Provisions', 'Another publication text.', '_other', '_otherTitle'),
+  });
+});
+
+test('R51: a disagreement that has NOT been ruled on fails the read', () => {
+  // What makes the list a ruling rather than a licence: only the enumerated conrefs are omitted,
+  // and anything else of the same shape stops the build instead of quietly shipping.
+  withFixture(dir => {
+    assert.throws(() => readPackage2022(dir, VOL1),
+      /states clause @id _wanted \/ title @id _wantedTitle[\s\S]*no file in this package carries the stated identity/);
+  }, {
+    'XMLs/FlattenedFile.xml': mapWith(identifiedRef('A1G1-scope.xml', '_wanted', '_wantedTitle')),
+  });
+});
+
+test('R51: where the stated identity IS in the package, the clauseref follows it', () => {
+  // Rule 2 — a filename is not an identity, so when the map's own statement resolves here, THAT
+  // file is the target. Inert on the real 2022 packages (0 redirects); implemented because it is
+  // what makes the omission above a consequence of the join rather than an arbitrary exception.
+  withFixture(dir => {
+    const diagnostics = {};
+    const units = readPackage2022(dir, VOL1, { diagnostics });
+    const emitted = units.find(u => u.id === 'A1G1');
+    assert.ok(emitted, 'a clause was emitted for the clauseref');
+    const { bodyMd } = normalizeUnit(emitted, { year: '2022', cdnKey: 'volume1' });
+    assert.match(bodyMd, /the clause the map means/, 'the identity won, not the filename');
+    assert.equal(diagnostics.identityRedirects, 1);
+    assert.equal(diagnostics.omittedClauses.length, 0, 'a resolvable disagreement is not an omission');
+  }, {
+    'XMLs/FlattenedFile.xml': mapWith(identifiedRef('A1G1-scope.xml', '_realTarget', '_realTargetTitle')),
+    'XMLs/A1G1-scope.xml': identifiedClause('A1G1', 'Scope', 'the WRONG file under the right name.', '_decoy', '_decoyTitle'),
+    'XMLs/A1G1-scope-actual.xml':
+      identifiedClause('A1G1', 'Scope', 'the clause the map means.', '_realTarget', '_realTargetTitle'),
+  });
+});
+
+test('R51: a title-only disagreement fails rather than choosing a signal', () => {
+  // Never observed in any package (measured: root-only 1, title-only 0), so which identity to
+  // believe has not been established. Guessing would publish a clause under a title the map says
+  // belongs to a different one — the same class of defect, one attribute smaller.
+  withFixture(dir => {
+    assert.throws(() => readPackage2022(dir, VOL1), /No clauseref in any package has this shape/);
+  }, {
+    'XMLs/FlattenedFile.xml': mapWith(identifiedRef('A1G1-scope.xml', '_agree', '_disagree')),
+    'XMLs/A1G1-scope.xml': identifiedClause('A1G1', 'Scope', 'Body.', '_agree', '_actualTitle'),
+  });
+});
+
+test('R51: a stale ROOT id alone does not overturn the conref and the title — the B3F1 shape', () => {
+  // volume-three's B3F1 clauseref carries the SAME <clause @id> as the B2F1 clauseref two
+  // subtopics earlier — an authoring copy-paste — while its <title @id> and its conref both
+  // correctly name B3F1. Following the @id alone would publish heated-water text as B3F1, or
+  // (B2F1 having been emitted already) drop B3F1 as a duplicate. Both are regressions on a file
+  // that is currently correct, which is why the join needs BOTH identities to disagree.
+  withFixture(dir => {
+    const diagnostics = {};
+    const units = readPackage2022(dir, VOL1, { diagnostics });
+    const emitted = units.find(u => u.id === 'B3F1');
+    assert.ok(emitted, 'B3F1 is still published');
+    const { bodyMd } = normalizeUnit(emitted, { year: '2022', cdnKey: 'volume1' });
+    assert.match(bodyMd, /non-drinking water/, 'and it is its own text, not the file the stale id names');
+    assert.equal(diagnostics.omittedClauses.length, 0);
+    assert.equal(diagnostics.identityRedirects, 0);
+  }, {
+    'XMLs/FlattenedFile.xml': mapWith(
+      identifiedRef('B2F1-heated-water.xml', '_shared', '_b2f1Title')
+      + identifiedRef('B3F1-non-drinking-water.xml', '_shared', '_b3f1Title')),
+    'XMLs/B2F1-heated-water.xml':
+      identifiedClause('B2F1', 'Heated water supply', 'Heated water text.', '_shared', '_b2f1Title'),
+    'XMLs/B3F1-non-drinking-water.xml':
+      identifiedClause('B3F1', 'Non-drinking water supply', 'Fixtures provided with non-drinking water.', '_b3f1', '_b3f1Title'),
+  });
+});
+
+test('R51: every ruling names a volume, a conref and evidence a reader can check', () => {
+  assert.ok(OMITTED_2022_CLAUSES.length, 'the list is not vacuously valid');
+  const volumes = new Set(DOCUMENTS_2022.map(d => d.key));
+  const seen = new Set();
+  for (const e of OMITTED_2022_CLAUSES) {
+    assert.ok(volumes.has(e.volume), `${e.clause}: ${e.volume} is not a document of this edition`);
+    assert.match(e.conref, /\.xml$/, `${e.clause}: the conref is the filename the map states`);
+    assert.ok(e.evidence.length >= 80, `${e.clause}: evidence is a measurement, not a label`);
+    const key = `${e.volume}|${e.conref}`;
+    assert.ok(!seen.has(key), `${key} is ruled on twice`);
+    seen.add(key);
+  }
+  // Keyed on volume AND conref: the same filename is omitted from volume-one and volume-three for
+  // opposite halves of one swap, so a key on either alone would collapse the two rulings into one.
+  assert.equal(omittedClause('volume-one', 'B1D1-deemed-to-satisfy-provisions.xml').reason, 'map-identity-unresolved');
+  assert.ok(omittedClause('volume-three', 'B1D1-deemed-to-satisfy-provisions.xml'));
+  assert.equal(omittedClause('volume-two', 'B1D1-deemed-to-satisfy-provisions.xml'), null);
+  assert.equal(omittedClause('volume-one', 'A1G1-scope.xml'), null);
 });

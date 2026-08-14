@@ -830,3 +830,60 @@ test('every edition with a reader has its documents, its parity target and its c
     assert.ok(fs.existsSync(`tools/data/weblinks-${key}.json`), `${key}: no committed link file`);
   }
 });
+
+/* -- R51: the omissions block, and the ruling that must not go stale ---------- */
+
+/** The smallest `built` shape `report` needs. */
+const builtStub = (o = {}) => ({
+  editionKey: '2022',
+  failures: [],
+  stats: {
+    editionKey: '2022', perDoc: [], kinds: new Map(), warnings: new Map(),
+    figures: new Set(), webUrl: new Map(), parity: new Map(),
+    duplicates: 0, merges: [], glossary: [], glossaryWithheld: null,
+  },
+  producible: new Set(), editionDirs: new Set(), ownedDirs: new Set(),
+  indexEntries: [], unresolvedOther: [], permittedNullClauses: [], droppedCitations: [],
+  omittedClauses: [],
+  ...o,
+});
+
+test('the report names every omitted clause and why, and says so when there are none', () => {
+  // Printed unconditionally, for the same reason DROPPED CITATIONS is: a block that appeared only
+  // when something was omitted makes "this edition omits nothing" and "this build does not track
+  // omissions" render identically — and the omissions are the ONLY record, since the corpus
+  // carries no stub where the clause would have been.
+  const none = report(builtStub(), null, { volumes: null, sections: null });
+  assert.match(none, /OMITTED CLAUSES — 0/);
+  assert.match(none, /none — every clauseref resolved to the clause its map names/);
+
+  const some = report(builtStub({
+    omittedClauses: [
+      {
+        doc: 'volume-three', clause: 'C1O1', conref: 'C1O1-objective.xml',
+        reason: 'map-identity-unresolved',
+        evidence: 'The file of that name publishes Volume One\'s fire Objective; the published NCC 2022 '
+          + 'Volume Three C1O1 is about a sanitary plumbing installation.',
+      },
+    ],
+  }), null, { volumes: null, sections: null });
+  assert.match(some, /OMITTED CLAUSES — 1 — map-identity-unresolved 1/);
+  assert.match(some, /volume-three {8}C1O1 {4}map-identity-unresolved/);
+  assert.match(some, /C1O1-objective\.xml/);
+  assert.match(some, /sanitary plumbing installation/, 'the evidence travels into the report, not just a label');
+});
+
+test('an omission that omitted nothing fails the build', () => {
+  // A ruling that stops applying is how published Code comes back silently — or, worse, how a
+  // ruling that has drifted onto the wrong conref keeps omitting something else. The reader
+  // RECORDS the unfired entries (a fixture package legitimately fires none) and the build asserts.
+  const built = builtStub({
+    failures: ['build: 1 OMITTED_2022_CLAUSES entr(y/ies) matched no clauseref in the package they name.\n'
+      + '  volume-one  D3D31  D3D31-Wayfinding-signage.xml'],
+  });
+  const out = report(built, null, { volumes: null, sections: null });
+  assert.match(out, /\*\*\* FAILED — NOTHING WRITTEN \*\*\*/);
+  assert.match(out, /ASSERTIONS FAILED \(1\)/);
+  assert.match(out, /matched no clauseref in the package they name/);
+  assert.match(out, /volume-one {2}D3D31/);
+});

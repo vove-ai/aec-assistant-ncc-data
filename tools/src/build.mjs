@@ -776,6 +776,8 @@ function buildEdition(editionKey, opts) {
   const unresolvedOther = [];
   const permittedNullClauses = [];
   const droppedCitations = [];
+  const omittedClauses = [];
+  const unfiredOmissions = [];
   const sectionsSeen = new Set();
   const stats = {
     editionKey,
@@ -795,6 +797,8 @@ function buildEdition(editionKey, opts) {
     const diagnostics = {};
     const all = ed.readUnits(doc, { diagnostics });
     for (const d of diagnostics.droppedCitations ?? []) droppedCitations.push({ doc: doc.key, ...d });
+    for (const o of diagnostics.omittedClauses ?? []) omittedClauses.push({ doc: doc.key, ...o });
+    for (const u of diagnostics.unfiredOmissions ?? []) unfiredOmissions.push(u);
     for (const u of all) {
       const rel = unitRelPath(u);
       producible.add(rel);
@@ -890,6 +894,18 @@ function buildEdition(editionKey, opts) {
   if (unresolvedClauses.length) failures.push(unresolvedClauseError(editionKey, unresolvedClauses));
   const parityFailure = parityCheck(editionKey, stats.parity);
   if (parityFailure) failures.push(parityFailure);
+  // R51: an enumerated omission that omitted nothing is a ruling that has gone stale against the
+  // source. Asserted here rather than in the reader because the reader is also handed synthetic
+  // fixture packages that carry a real document key and none of the real clauserefs.
+  if (unfiredOmissions.length) {
+    failures.push([
+      `build: ${unfiredOmissions.length} OMITTED_2022_CLAUSES entr(y/ies) matched no clauseref in the `
+      + 'package they name. Either the source changed and the ruling no longer applies, or the conref '
+      + 'was mistyped — and an omission of published Code must not stop applying unnoticed. '
+      + 'Re-establish what the map says before removing or correcting the entry.',
+      ...unfiredOmissions.map(u => `  ${u.volume}  ${u.clause}  ${u.conref}`),
+    ].join('\n'));
+  }
 
   // A run that did not read every document must not rewrite the glossary from a partial view.
   // Applied AFTER the assertions, so a partial run is still told about a conflict it would have
@@ -932,6 +948,7 @@ function buildEdition(editionKey, opts) {
     unresolvedOther,
     permittedNullClauses,
     droppedCitations,
+    omittedClauses,
     stats: {
       ...stats,
       duplicates: resolved.duplicates,
@@ -1092,6 +1109,7 @@ export function report(built, io, opts) {
 
   out.push('', parityBlock(built));
   out.push(droppedCitationsBlock(built));
+  out.push(omittedClausesBlock(built));
   out.push(unresolvedBlock(built));
   out.push(...permittedNullBlock(built));
   if (built.failures.length) out.push('', `ASSERTIONS FAILED (${built.failures.length}):`, '', ...built.failures);
@@ -1167,6 +1185,36 @@ function droppedCitationsBlock(built) {
     lines.push(`  ${pad(d.doc, 20)}${pad(d.kind, 7)}${d.host}`, `${' '.repeat(29)}-> ${d.wrapper}`);
   }
   if (list.length > 20) lines.push(`  … and ${list.length - 20} more`);
+  return lines.join('\n');
+}
+
+/**
+ * R51: the clauses this edition's packages cannot publish, and why.
+ *
+ * Printed unconditionally, including the zero, for the same reason as DROPPED CITATIONS: a block
+ * that appeared only when something was omitted would make "this edition omits nothing" and "this
+ * build does not track omissions" render identically. The disposition is OMIT rather than a stub —
+ * an absent clause sends an agent to `web_url` and the live Code, which is recoverable, where a
+ * present clause carrying another publication's provisions is not — so the build report and
+ * `{edition}/INDEX.md` are the ONLY places the gap is visible. Both must say it.
+ */
+function omittedClausesBlock(built) {
+  const list = built.omittedClauses ?? [];
+  const byReason = new Map();
+  for (const o of list) byReason.set(o.reason, (byReason.get(o.reason) ?? 0) + 1);
+  const lines = ['', `OMITTED CLAUSES — ${list.length}`
+    + (list.length ? ` — ${[...byReason.keys()].sort(byCodepoint).map(r => `${r} ${byReason.get(r)}`).join(' · ')}` : '')];
+  if (!list.length) {
+    lines.push('  none — every clauseref resolved to the clause its map names, and no clause is 2025-only');
+    return lines.join('\n');
+  }
+  lines.push('  Clauses this edition\'s source packages cannot publish, each ruled on individually in',
+    '  OMITTED_2022_CLAUSES with the evidence below. A clauseref whose map identity disagrees and is',
+    '  NOT on that list still FAILS the build. Omitted, never stubbed: an absent clause sends a reader',
+    '  to web_url and the live Code; a clause carrying another volume\'s provisions misleads silently.');
+  for (const o of list) {
+    lines.push(`  ${pad(o.doc, 20)}${pad(o.clause, 8)}${o.reason}`, `${' '.repeat(22)}${o.conref}`, ...wrap(o.evidence, '    '));
+  }
   return lines.join('\n');
 }
 
@@ -1268,7 +1316,11 @@ export async function main(argv) {
 
   const reports = built.map(b => report(b, applyPlan(b), opts));
   const unitsByEdition = new Map(built.map(b => [b.editionKey, b.indexEntries]));
-  for (const { relPath, content } of buildIndexes(unitsByEdition, { tree: corpusTree() })) {
+  // R51: the corpus omits rather than stubs, so `{edition}/INDEX.md` is the only artifact under
+  // corpus/ that can tell a browsing agent a clause is deliberately absent. The build report says
+  // it too, but nothing searching the corpus ever reads a build report.
+  const omissionsByEdition = new Map(built.map(b => [b.editionKey, b.omittedClauses ?? []]));
+  for (const { relPath, content } of buildIndexes(unitsByEdition, { tree: corpusTree(), omissions: omissionsByEdition })) {
     const file = toFsPath(relPath);
     fs.mkdirSync(path.dirname(file), { recursive: true });
     fs.writeFileSync(file, content);

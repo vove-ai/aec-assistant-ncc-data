@@ -25,6 +25,9 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { DOCUMENTS_2025 } from '../src/read-2025.mjs';
 import { DOCUMENTS_2022 } from '../src/read-2022.mjs';
+// The RULINGS, not the producer. This suite reads the corpus with its own frontmatter parser on
+// purpose; what it must not do is disagree with build.mjs about which nulls have been ruled on.
+import { nullWebUrlException } from '../src/build.mjs';
 
 const editions = ['2022', '2025'].filter(e => fs.existsSync(`corpus/${e}`));
 const files = ed => walk(`corpus/${ed}`).filter(f => f.endsWith('.md') && !f.endsWith('INDEX.md'));
@@ -118,6 +121,47 @@ function figKey(raw) {
     .replace(/[.,;:)\]]+$/, '')                                 // sentence punctuation
     .replace(/^(?:ACT|NSW|NT|QLD|SA|TAS|VIC|WA)\s+/i, '')       // prose carries it, the embed does not
     .toLowerCase();
+}
+
+/**
+ * #4 exceptions: a prose reference the SOURCE itself cannot resolve.
+ *
+ * Distinct from the two failures #4 exists to catch (a figure the normalizer dropped, a unit never
+ * emitted): here the Code prints a designation this edition does not have, and no transform can
+ * recover the right one because the source carries no tracked change at that point. Loosening the
+ * test would hide the other two, so each case is enumerated with the evidence instead.
+ */
+const FIGURE_REF_EXCEPTIONS = [
+  {
+    edition: '2022',
+    file: 'corpus/2022/volume-one/f1d8-subfloor-ventilation.md',
+    key: 'f1d11',
+    evidence:
+      'The NCC 2022 clause is F1D8 and it embeds Figure F1D8, correctly. Its Table F1D8 header cell '
+      + 'reads "Climatic zone (see Figure F1D11)" — F1D11 is the NCC 2025 designation of this same '
+      + 'clause. In table-F1D11-subfloor-openings-and-ground-clearance.xml the <num> IS tracked '
+      + '(<delText>8</delText><insText>11</insText>, so the base view renders "Table F1D8"), but the '
+      + '<thead> cell holds a literal untracked <xref synctargettext="false">Figure F1D11</xref>. The '
+      + '2022 wording is not in the source, so it cannot be reproduced; the reference is the ABCB\'s '
+      + 'own forward reference and is listed in corpus/2022/INDEX.md as a source characteristic.',
+  },
+];
+
+for (const e of FIGURE_REF_EXCEPTIONS) {
+  for (const k of ['edition', 'file', 'key', 'evidence']) {
+    if (typeof e[k] === 'string' && e[k].trim()) continue;
+    throw new Error(`acceptance: FIGURE_REF_EXCEPTIONS entry ${JSON.stringify(e)} has no ${k}`);
+  }
+  if (e.evidence.length < 80) {
+    throw new Error(`acceptance: FIGURE_REF_EXCEPTIONS entry for ${e.key} states ${e.evidence.length} characters `
+      + 'of evidence — an unresolvable citation needs a measurement a reader can check, not a label');
+  }
+}
+
+/** The ruling covering this unresolvable figure reference, or null. Paths compare with `/`. */
+function figureRefException(edition, file, key) {
+  const rel = String(file).split(path.sep).join('/');
+  return FIGURE_REF_EXCEPTIONS.find(e => e.edition === edition && e.file === rel && e.key === key) ?? null;
 }
 
 if (!editions.length) {
@@ -265,14 +309,27 @@ for (const ed of editions) {
     // ZERO `see Figure` references — the pilot slice is exactly this case; the full corpus has 131.)
     if (!references.length) return t.skip(`no figure references in corpus/${ed} — this slice does not exercise #4`);
 
-    // Always valid, on any slice: a reference resolved by a built file must resolve to ONE built
-    // file. A partial corpus can only ever hold a SUBSET of the embedders, so this arm cannot
+    // Always valid, on any slice: a reference resolved by a built file must resolve to ONE
+    // PROVISION. A partial corpus can only ever hold a SUBSET of the embedders, so this arm cannot
     // produce a false positive when documents are missing.
+    //
+    // "One provision", not "one file", and the difference is an edition's structure rather than a
+    // weakening. NCC 2025 holds a state variation INLINE in the clause's own file, so a figure has
+    // one embedder. NCC 2022 publishes each jurisdiction's variation as a SEPARATE file, so a
+    // figure inside a varied clause is embedded by the national file and by that clause's own
+    // variations. Measured over the full 2022 corpus: 129 references, and the only multi-embedder
+    // case is Figure 2.2.3 — `housing-provisions/2.2.3-determination-of-individual-actions.md` and
+    // `2.2.3-wa-…md`, which are clause 2.2.3 in jurisdictions `aus` and `wa`. One `grep -rl`
+    // returns both, and both ARE the answer: an agent asking where Figure 2.2.3 lives needs to know
+    // WA republishes it. Two embedders carrying DIFFERENT clause designations is real ambiguity and
+    // still fails here. (2025: 0 multi-embedder cases, so this arm is unchanged for it.)
     for (const { f, cited, key } of references) {
       const who = embedders.get(key) ?? new Set();
       if (who.size === 0 || who.has(f)) continue;
-      assert.equal(who.size, 1,
-        `${f}: cites Figure ${cited}, embedded by ${who.size} files, so one grep does not reach it — ${[...who].join(', ')}`);
+      const designations = new Set([...who].map(w => clauseOf(contents.get(w)) ?? w));
+      assert.equal(designations.size, 1,
+        `${f}: cites Figure ${cited}, embedded by ${who.size} files covering ${designations.size} different `
+        + `clauses, so one grep does not reach one provision — ${[...who].join(', ')}`);
     }
 
     // Only valid on a COMPLETE corpus. A built document may cite a figure that lives in one this
@@ -287,19 +344,42 @@ for (const ed of editions) {
       }
       for (const { f, cited, key } of references) {
         const who = embedders.get(key) ?? new Set();
-        assert.ok(who.size > 0,
-          `${f}: cites Figure ${cited}, which no file in the complete corpus/${ed} embeds. Two possibilities, `
-          + 'both real: normalize.mjs dropped the figure, or the unit carrying it was never emitted. '
-          + 'Check the source XML for its <image-reference> before changing either.');
+        if (who.size > 0) continue;
+        const ruled = figureRefException(ed, f, key);
+        if (ruled) continue;
+        assert.fail(
+          `${f}: cites Figure ${cited}, which no file in the complete corpus/${ed} embeds. Three possibilities, `
+          + 'all real: normalize.mjs dropped the figure, the unit carrying it was never emitted, or the '
+          + 'SOURCE names a designation this edition does not have. Check the source XML for its '
+          + '<image-reference> before changing either, and rule on it in FIGURE_REF_EXCEPTIONS if the '
+          + 'reference is the Code\'s own.');
       }
     });
   });
 
   test(`[${ed}] #5 grep -A window self-citing: citation+web_url in first 6 lines`, () => {
     for (const f of files(ed)) {
-      const head = read(f).split('\n').slice(0, 7).join('\n');
+      const content = read(f);
+      const head = content.split('\n').slice(0, 7).join('\n');
       assert.match(head, /citation: /, f);
-      if (/^clause: /m.test(head)) assert.match(head, /web_url: /, f);
+      if (!/^clause: /m.test(head)) continue;
+      // R50: `build.mjs` permits a clause null that has been RULED ON, and this suite must consult
+      // the same list or the two contradict each other — the build passes and the corpus's own
+      // acceptance gate fails on a file the build deliberately allowed. Importing the LIST is not
+      // the thing this suite avoids: it still reads the frontmatter with its own parser, so a
+      // producer bug cannot hide here. A null that is NOT on the list still fails.
+      const juris = fm(content, 'jurisdiction');
+      const permitted = nullWebUrlException(ed, {
+        volume: fm(content, 'volume'),
+        id: clauseOf(content),
+        state: juris && juris !== 'aus' ? juris : null,
+      });
+      if (permitted) {
+        assert.doesNotMatch(head, /web_url: /,
+          `${f}: is on NULL_WEB_URL_CLAUSES but DOES resolve a web_url — the exception has outlived its cause`);
+        continue;
+      }
+      assert.match(head, /web_url: /, f);
     }
   });
 

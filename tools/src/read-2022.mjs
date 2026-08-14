@@ -336,6 +336,10 @@ const elementChildren = el => { const o = []; for (let c = el.firstChild; c; c =
 const childEl = (el, tag) => { for (let c = el.firstChild; c; c = c.nextSibling) if (c.nodeType === 1 && c.nodeName === tag) return c; return null; };
 const childText = (el, tag) => collapse(childEl(el, tag)?.textContent ?? '');
 const attr = (el, name) => { const v = el.getAttribute?.(name); return v === null || v === undefined || v === '' ? null : v; };
+/** `attr` on an element that may be absent. R51 reads `<title @id>`, and a clause without a
+ *  `<title>` is a shape the source does not have — but "no title" and "a title with no @id" must
+ *  answer the same null rather than one of them throwing from inside a join. */
+const attrOf = (el, name) => (el ? attr(el, name) : null);
 
 /** Recursive enumeration — `XMLs/` is NOT flat. Three glossary terms contain a literal `/` and
  *  ship as DIRECTORIES (`XMLs/glossary-CO2-e/m2.hr.xml`), so a flat readdir loses three entries
@@ -352,6 +356,165 @@ function walkFiles(dir, rel = '') {
 }
 
 const XML_PARSER = { onError: () => {} };   // @xmldom/xmldom 0.9 rejects the old errorHandler object
+
+/**
+ * R51 — the enumerated clauses NCC 2022 does not publish from this package.
+ *
+ * Two source conditions produce a clauseref this reader must NOT emit, and both were found at
+ * bulk scale in Task 14 after the pilot passed clean. Neither is repairable from this dataset,
+ * so the disposition is OMIT, never a stub: an absent clause makes an agent fall back to
+ * `web_url` and the live Code, which is recoverable. A present clause carrying another volume's
+ * provisions is not — and a corpus that sometimes puts our own notices where Code text belongs
+ * teaches an agent to expect them.
+ *
+ *  * `map-identity-unresolved` — the map's clauseref states its target's identity twice, and
+ *    BOTH statements disagree with the file the `conref` names. Measured: 9 such clauserefs, and
+ *    every one of them was emitting another volume's law under this volume's citation and
+ *    `web_url` (`volume-three/c1o1-objective.md` published Volume One's fire Objective on the
+ *    Plumbing Code's Part C1 page). Verified against ncc.abcb.gov.au in both directions.
+ *  * `clause-is-2025-only` — the clause file's `<sptc>` and `<title>` were authored WITHOUT
+ *    tracked-change marks while every one of its body ranges is a 2024 `xt:insText` insertion.
+ *    §1.3's membership rule (non-empty base `sptc`) therefore admits it and §4.1's map signal
+ *    agrees, but the base view is empty or a husk. All three carry `<archive-num>[ARCHIVE]` (no
+ *    2019 predecessor) and all three exist in full in the NCC 2025 corpus.
+ *
+ * Keyed on volume + the `conref` the map names, which is the string the map actually states and
+ * which a reader can check in the source. An entry that matches nothing during a full read
+ * THROWS: an omission that omits nothing is a ruling that has silently gone stale.
+ *
+ * A disagreement that is NOT on this list still fails the build, exactly as R50 works.
+ */
+export const OMITTED_2022_CLAUSES = [
+  {
+    volume: 'volume-one', conref: 'B1D1-deemed-to-satisfy-provisions.xml', clause: 'B1D1',
+    reason: 'map-identity-unresolved',
+    evidence:
+      "volume-one's map wants clause @id _00602d3a…/title @id _50d46460…; the volume-one package's "
+      + 'file of that name is a different clause (@id _36029f3d…) carrying Volume THREE\'s cold-water '
+      + 'B1D1 — byte-identical to corpus/2025/volume-three/b1d1. The wanted id is in volume-two and '
+      + 'volume-three, not here. Each package is its own publication, so it is not read across.',
+  },
+  {
+    volume: 'volume-one', conref: 'C2D1-deemed-to-satisfy-provisions.xml', clause: 'C2D1',
+    reason: 'map-identity-unresolved',
+    evidence:
+      "volume-one's map wants @id _7a8c0fbb…; the file of that name here is @id _e75ed91c… and "
+      + 'publishes Volume Three\'s C2D1 ("Performance Requirements C2P1 to C2P7 … C2D2 to C2D5"). '
+      + 'The published NCC 2022 Volume One C2D1 reads "C1P1 to C1P9 … C2D2 to C2D15, C3D2 to C3D15 '
+      + 'and C4D2 to C4D17" (fetched from ncc.abcb.gov.au 2026-08-14). Wanted id is in volume-three only.',
+  },
+  {
+    volume: 'volume-three', conref: 'B1D1-deemed-to-satisfy-provisions.xml', clause: 'B1D1',
+    reason: 'map-identity-unresolved',
+    evidence:
+      "volume-three's map wants @id _36029f3d…; the file of that name here is @id _00602d3a… and "
+      + "publishes Volume One's structural B1D1. The wanted id is in volume-one and "
+      + 'housing-provisions. This and the volume-one entry above are the two halves of one swap.',
+  },
+  {
+    volume: 'volume-three', conref: 'C1O1-objective.xml', clause: 'C1O1',
+    reason: 'map-identity-unresolved',
+    evidence:
+      "volume-three's map wants @id _13c6eb96…, which is in NO package. The file of that name here "
+      + 'publishes Volume One\'s Section C Objective ("safeguard people from illness or injury due to '
+      + 'a fire in a building"). The published NCC 2022 Volume Three C1O1 reads "…due to the failure '
+      + 'of a sanitary plumbing installation" (fetched from the file\'s own web_url, 2026-08-14).',
+  },
+  {
+    volume: 'volume-three', conref: 'C2D1-deemed-to-satisfy-provisions.xml', clause: 'C2D1',
+    reason: 'map-identity-unresolved',
+    evidence:
+      "volume-three's map wants @id _e75ed91c…, which is in volume-one, volume-two and "
+      + "housing-provisions. The file of that name here publishes Volume One's fire-resistance C2D1, "
+      + 'confirmed verbatim against ncc.abcb.gov.au 2026-08-14.',
+  },
+  {
+    volume: 'volume-three', conref: 'C3D1-deemed-to-satisfy-provisions.xml', clause: 'C3D1',
+    reason: 'map-identity-unresolved',
+    evidence:
+      "volume-three's map wants @id _6928fe33…, which is in NO package. The file of that name here "
+      + "publishes Volume One's fire-resistance DTS list (Jaccard 0.85 against "
+      + 'corpus/2025/volume-one/c3d1, 0.48 against its own volume).',
+  },
+  {
+    volume: 'volume-three', conref: 'D1O1-objective.xml', clause: 'D1O1',
+    reason: 'map-identity-unresolved',
+    evidence:
+      "volume-three's map wants @id _45439b74…, which is in NO package. The file of that name here "
+      + 'publishes Volume One\'s access-and-egress Objective ("safe, equitable and dignified access '
+      + 'to a building"), identical to corpus/2025/volume-one/d1o1; Volume Three D1O1 is about '
+      + 'excessive noise of a plumbing and drainage system.',
+  },
+  {
+    volume: 'volume-three', conref: 'E1O1-objective.xml', clause: 'E1O1',
+    reason: 'map-identity-unresolved',
+    evidence:
+      "volume-three's map wants @id _3e56fca3…, which is in NO package. The file of that name here "
+      + "publishes Volume One's services-and-equipment Objective (fire brigade, fire-fighting "
+      + 'operations), identical to corpus/2025/volume-one/e1o1.',
+  },
+  {
+    volume: 'volume-three', conref: 'E1D1-deemed-to-satisfy-provisions.xml', clause: 'E1D1',
+    reason: 'map-identity-unresolved',
+    evidence:
+      "volume-three's map wants @id _86d790ed…, which is in NO package. The file of that name here "
+      + "publishes Volume One's E1D1 (\"E1D2 to E1D17; … atrium, Part G3; … alpine area, Part G4\"), "
+      + 'Jaccard 0.86 against corpus/2025/volume-one/e1d1.',
+  },
+  {
+    volume: 'volume-one', conref: 'D3D31-Wayfinding-signage.xml', clause: 'D3D31',
+    reason: 'clause-is-2025-only',
+    evidence:
+      'Every <num> and every <p> in the file sits inside an xt:insText range authored 2024-03-14 — '
+      + 'after NCC 2022 was published — so the base view is EMPTY; only <sptc>D3D31</sptc> and '
+      + '<title>Wayfinding signage</title> are untracked. archive-num is <placeholder>[ARCHIVE]</placeholder> '
+      + '(no 2019 predecessor), and the clause exists in full at corpus/2025/volume-one/d3d31-wayfinding-signage.md. '
+      + 'NCC 2022 Volume One Part D3 has no D3D31, so the emitted file carried a #D3D31 anchor that does not resolve.',
+  },
+  {
+    volume: 'volume-three', conref: 'B5D7 Cross-connection-hazards.xml', clause: 'B5D7',
+    reason: 'clause-is-2025-only',
+    evidence:
+      'Same shape as D3D31: untracked <sptc>B5D7</sptc>/<title>, every body range an xt:insText '
+      + 'insertion dated 2024-03/2024-04, archive-num [ARCHIVE], base view EMPTY, and the clause '
+      + 'exists in full at corpus/2025/volume-three/b5d7-cross-connection-hazards.md.',
+  },
+  {
+    volume: 'volume-three', conref: 'B1V1-Determination-of-velocity.xml', clause: 'B1V1',
+    reason: 'clause-is-2025-only',
+    evidence:
+      'Same shape, and the reason an emptiness test is not the rule: one <equation-inline> sits '
+      + 'BETWEEN two xt:insText milestone ranges rather than inside one, so mechanism 1 has nothing '
+      + 'to drop and the base view rendered "**(1)** D_(min)" followed by six empty subclause '
+      + 'numbers. archive-num [ARCHIVE]; every text range dated 2024-03-04 or later; the clause '
+      + 'exists in full (eight subclauses) at corpus/2025/volume-three/b1v1-determination-of-velocity.md.',
+  },
+];
+
+const OMISSION_REASONS = new Set(['map-identity-unresolved', 'clause-is-2025-only']);
+
+// Refused at import, not at the moment an entry would have omitted something: an omission whose
+// evidence is a shrug is indistinguishable from a bug, and a build is the wrong place to find out.
+for (const e of OMITTED_2022_CLAUSES) {
+  for (const k of ['volume', 'conref', 'clause', 'evidence']) {
+    if (typeof e[k] === 'string' && e[k].trim()) continue;
+    throw new Error(`read-2022: OMITTED_2022_CLAUSES entry ${JSON.stringify(e)} has no ${k} — an omission `
+      + 'must name the volume, the conref the map states and the clause it covers, and state its evidence');
+  }
+  if (!OMISSION_REASONS.has(e.reason)) {
+    throw new Error(`read-2022: OMITTED_2022_CLAUSES entry for ${e.clause} has reason ${JSON.stringify(e.reason)} — `
+      + `expected one of ${[...OMISSION_REASONS].join(', ')}`);
+  }
+  if (e.evidence.length < 80) {
+    throw new Error(`read-2022: OMITTED_2022_CLAUSES entry for ${e.clause} states ${e.evidence.length} characters of `
+      + 'evidence — an omission of published Code needs a measurement a reader can check, not a label');
+  }
+}
+
+/** The R51 entry covering this clauseref, or null. */
+export function omittedClause(volume, conref) {
+  return OMITTED_2022_CLAUSES.find(e => e.volume === volume && e.conref === conref) ?? null;
+}
 
 /** Filenames carry spaces, dots, commas, en-dashes and parentheses. Fold them all, and case, so
  *  the state-variation and figure joins compare designations rather than typography (§5.3.1, §6).
@@ -421,12 +584,17 @@ export function readPackage2022(pkgDir, doc, { sections = null, diagnostics = nu
     brokenConrefs: [], unjoinedPointers: [], uncategorisedGlossary: [], droppedCitations: [],
     unreferencedImages: 0,
     pages: 0, overviews: 0, glossrefs: 0,
+    // R51. `omittedClauses` is what this run actually left out, one record per clauseref, each
+    // carrying the ruling's evidence; `identityRedirects` counts the clauserefs whose stated
+    // identity resolved to a DIFFERENT file in this package and was followed there.
+    omittedClauses: [], identityRedirects: 0,
   };
 
   /* -- pass 1: one parse per file, facts kept, DOM discarded ---------------- */
 
   const facts = new Map();
   const wrapperById = new Map();
+  const clauseFileById = new Map();     // R51: root @id -> clause file, for the map's identity join
   const byStem = new Map();
   const partsByNum = new Map();
   const clauseVariationSites = [];
@@ -446,6 +614,10 @@ export function readPackage2022(pkgDir, doc, { sections = null, diagnostics = nu
       file,
       root: root.nodeName,
       id: attr(root, 'id'),
+      // The SECOND identity the map states for a clause (R51). Read before the base view is
+      // applied would make no difference — an element's @id carries no tracked change — but it is
+      // read here so `facts` holds both halves of the join in one place.
+      titleId: attrOf(childEl(root, 'title'), 'id'),
       variation: attr(root, 'variation'),
       baseId: baseIdEl ? collapse(baseIdEl.textContent) : '',
       acceptedId: accepted,
@@ -456,6 +628,16 @@ export function readPackage2022(pkgDir, doc, { sections = null, diagnostics = nu
     if (root.nodeName === 'clause') {
       const m = dg.membership;
       m.clauses++;
+      if (f.id) {
+        // A package that reused a root @id across two clause files would make the R51 join
+        // ambiguous, and picking either would be a guess. Measured: 0 collisions in all four.
+        if (clauseFileById.has(f.id)) {
+          throw new Error(`read-2022 [${doc.key}]: clause @id ${f.id} is on two files — `
+            + `${clauseFileById.get(f.id)} and ${file}. The map's clauseref identity join (R51) `
+            + 'cannot choose between them; establish which file the publication means before proceeding.');
+        }
+        clauseFileById.set(f.id, file);
+      }
       if (!f.baseId) m.only2025++;
       else if (!f.acceptedId) m.only2022++;
       else if (f.baseId === f.acceptedId) m.unchanged++;
@@ -741,6 +923,9 @@ export function readPackage2022(pkgDir, doc, { sections = null, diagnostics = nu
   }
 
   const emittedClauseFiles = new Set();
+  // R51: which enumerated omissions this read actually used. An entry that fires nothing is a
+  // ruling that has gone stale against the source, and is a build failure — see the check below.
+  const omissionsFired = new Set();
   const seenGlossaryIds = new Set();
   const categoryByTerm = new Map();
   let glossaryCtx = null;
@@ -1037,7 +1222,7 @@ export function readPackage2022(pkgDir, doc, { sections = null, diagnostics = nu
         const conref = attr(c, 'conref');
         if (!conref) failLoud('a clauseref whose clause carries no conref', path2);
         dg.map.mapped++;
-        const file = facts.has(conref) ? conref : null;
+        let file = facts.has(conref) ? conref : null;
         if (!file) {
           // Shipped broken in the source: 4 conrefs in volume-three carry a literal
           // `ERROR_IN_RESOLVING_URI:` prefix. Anything else that fails to resolve is ours.
@@ -1047,8 +1232,83 @@ export function readPackage2022(pkgDir, doc, { sections = null, diagnostics = nu
           dg.brokenConrefs.push(conref);
           continue;
         }
+
+        /* -- R51: the clauseref names its target THREE ways; they must agree ------------------
+         *
+         * `conref` is a filename, and a filename is not an identity: `XMLs/` is a shared
+         * authoring pool and two packages ship different clauses under the SAME name. The map
+         * also flattens the target's own `<clause @id>` and `<title @id>` into the clauseref, and
+         * those are identities. Where all three agree the join is confirmed; where the two ids
+         * BOTH disagree with the file, the file is not the clause the map means.
+         *
+         * Why BOTH and not the `<clause @id>` alone. Measured over 2,061 clause conrefs in the
+         * four packages: `@id` disagrees on 10, `<title @id>` on 9, both together on 9, title
+         * alone on 0. The nine are the real ones — each was emitting another volume's law, and
+         * two were checked verbatim against ncc.abcb.gov.au. The tenth is volume-three's B3F1,
+         * whose clauseref carries the SAME `<clause @id>` as the B2F1 clauseref two subtopics
+         * earlier while its `<title @id>` and `conref` both correctly name B3F1 — an authoring
+         * copy-paste, not a different target. Redirecting it on the `@id` alone would have
+         * published heated-water text as B3F1, or (since B2F1's file is already emitted by then)
+         * dropped B3F1 entirely. One contradicted attribute does not overturn two agreeing ones.
+         *
+         * `title-only` is the shape nothing in this corpus exhibits, so nothing is known about
+         * it: it FAILS rather than guessing which signal to believe.
+         *
+         * A clauseref that states only ONE of the two identities is treated as confirmed by the
+         * conref, because it is not claiming the other. Every clauseref in all four real packages
+         * states BOTH (measured: 0 of 2,061 missing either), so this arises only for a fixture
+         * that does not bother to spell them out.
+         */
+        const wantId = attr(c, 'id');
+        const wantTitleId = attrOf(childEl(c, 'title'), 'id');
+        const got = facts.get(file);
+        const idBad = Boolean(wantId) && got.id !== wantId;
+        const titleBad = Boolean(wantTitleId) && got.titleId !== wantTitleId;
+        if (titleBad && !idBad) {
+          failLoud(`clauseref conref ${JSON.stringify(conref)} states title @id ${wantTitleId} but the file's `
+            + `title is ${got.titleId}, while its clause @id ${wantId} matches. No clauseref in any package `
+            + 'has this shape, so which identity to believe has never been established — establish it '
+            + 'before this build is trusted.', path2);
+        }
+        if (idBad && titleBad) {
+          // Both identities disagree: this file is not the target. Follow the identity if this
+          // package holds it; otherwise the clause is not publishable from this package.
+          const byId = clauseFileById.get(wantId);
+          if (byId && facts.get(byId).titleId === wantTitleId) {
+            dg.identityRedirects++;
+            file = byId;
+          } else {
+            const ruling = omittedClause(doc.key, conref);
+            if (!ruling) {
+              failLoud(`clauseref conref ${JSON.stringify(conref)} states clause @id ${wantId} / title @id `
+                + `${wantTitleId}, but that file is @id ${got.id} / ${got.titleId} and no file in this package `
+                + 'carries the stated identity. The file named is a DIFFERENT clause, so emitting it would '
+                + "publish another publication's provisions under this one's citation. Establish which clause "
+                + 'the map means and add it to OMITTED_2022_CLAUSES with the evidence, or fix the join.', path2);
+            }
+            dg.omittedClauses.push({ conref, clause: ruling.clause, reason: ruling.reason, evidence: ruling.evidence });
+            omissionsFired.add(`${doc.key}|${conref}`);
+            continue;
+          }
+        }
+
         if (emittedClauseFiles.has(file)) { dg.map.duplicateConrefs++; continue; }
         if (!facts.get(file).baseId) { dg.map.mappedNo2022++; continue; }
+
+        // R51's second condition: identity agrees, but the clause itself is NCC 2025 only —
+        // untracked <sptc>/<title> over a body that is entirely a 2024 insertion, which §1.3's
+        // membership rule cannot see. Ruled and enumerated, never inferred.
+        const only2025 = omittedClause(doc.key, conref);
+        if (only2025) {
+          if (only2025.reason !== 'clause-is-2025-only') {
+            failLoud(`clauseref conref ${JSON.stringify(conref)} resolved cleanly but is listed in `
+              + `OMITTED_2022_CLAUSES as ${only2025.reason} — the ruling no longer describes the source`, path2);
+          }
+          dg.omittedClauses.push({ conref, clause: only2025.clause, reason: only2025.reason, evidence: only2025.evidence });
+          omissionsFired.add(`${doc.key}|${conref}`);
+          continue;
+        }
+
         emittedClauseFiles.add(file);
         if (!inScope(ctx)) continue;
         emitClauseFile(file, ctx);
@@ -1125,6 +1385,12 @@ export function readPackage2022(pkgDir, doc, { sections = null, diagnostics = nu
         if (c.nodeName === 'clause' && attr(c, 'conref')) {
           const file = attr(c, 'conref');
           if (!facts.has(file) || emittedClauseFiles.has(file) || !facts.get(file).baseId) continue;
+          // An R51 omission is a THIRD category, not a membership failure: the clauseref was
+          // refused because the map's own stated identity does not match this file, or because the
+          // clause is 2025-only. It is unemitted by ruling, so it is neither "reached only through
+          // a 2025 insertion" nor a clause lost between §1.3's and §4.1's signals — and counting it
+          // here would both throw and move §4.1's measured `insertOnly` census.
+          if (omittedClause(doc.key, file)) continue;
           dg.map.insertOnly++;
           const id = facts.get(file).baseId;
           if (emittedIds.has(id)) { dg.map.insertOnlyDuplicates++; continue; }
@@ -1173,6 +1439,20 @@ export function readPackage2022(pkgDir, doc, { sections = null, diagnostics = nu
   }
   dg.figures.distinct = usedImages.size;
   dg.unreferencedImages = images.length - usedImages.size;
+
+  /* -- R51: no ruling may go stale ------------------------------------------
+   * The whole package is always read (the build slices with its own `inScope`, never the reader),
+   * so every clauseref is walked on every run and an entry for THIS volume must have fired. One
+   * that did not is describing a source that has changed — and an omission nobody can see stop
+   * omitting is how published Code disappears quietly.
+   *
+   * RECORDED here, ASSERTED in build.mjs, for the same reason parity and the web_url nulls are: a
+   * fixture package in the test suite carries a real document key and none of the real clauserefs,
+   * so a throw here would fail on synthetic input that is not claiming to be the publication. The
+   * build only ever reads the real packages. */
+  dg.unfiredOmissions = OMITTED_2022_CLAUSES
+    .filter(e => e.volume === doc.key && !omissionsFired.has(`${doc.key}|${e.conref}`))
+    .map(e => ({ volume: e.volume, clause: e.clause, conref: e.conref }));
 
   if (diagnostics && typeof diagnostics === 'object') Object.assign(diagnostics, dg);
   return units;
