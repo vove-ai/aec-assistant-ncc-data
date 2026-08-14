@@ -32,8 +32,7 @@ defined_terms:
   (i) tenant supplementary heating and cooling systems; and
   (ii) external lighting; and
   (iii) carpark services; and
-(c)
-  (i) a thermal comfort level of between a Predicted Mean Vote of -1 to +1 is achieved across not less than 95% of the floor area of all occupied zones for not less than 98% of the annual hours of operation of the building; and
+(c) a thermal comfort level of between a Predicted Mean Vote of -1 to +1 is achieved across not less than 95% of the floor area of all occupied zones for not less than 98% of the annual hours of operation of the building; and
 (d) the building complies with the additional requirements in Specification 33.
 
 **(2)** For a Class 2 building, other than sole-occupancy units, compliance with J1P1 is verified when—

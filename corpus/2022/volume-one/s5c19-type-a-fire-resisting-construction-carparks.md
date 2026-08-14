@@ -30,11 +30,10 @@ defined_terms:
 
 (a) a separate building; or
 (b) a part of a building—
-  (i)
-    (A) which only occupies part of a storey, and is separated from the remaining part by a fire wall; or
-    (B) which is located above below another classification, and the floor separating the classifications complies with C3D10; or
-    (C) which is located above another Class 7 part of the building not used for carparking, and the floor separating the parts complies with Table S5C11g for a Class 7 part other than a carpark; or
-    (D) which is located below another Class 7 part of the building not used for carparking, and the floor separating the parts complies with this clause.
+  (i) which only occupies part of a storey, and is separated from the remaining part by a fire wall; or
+  (ii) which is located above below another classification, and the floor separating the classifications complies with C3D10; or
+  (iii) which is located above another Class 7 part of the building not used for carparking, and the floor separating the parts complies with Table S5C11g for a Class 7 part other than a carpark; or
+  (iv) which is located below another Class 7 part of the building not used for carparking, and the floor separating the parts complies with this clause.
 
 **(2)** For the purposes of this clause, a carpark—
 

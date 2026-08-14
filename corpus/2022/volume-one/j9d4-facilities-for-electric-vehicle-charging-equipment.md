@@ -33,9 +33,8 @@ defined_terms:
   (i) 100% of the car parking spaces associated with a Class 2 building; or
   (ii) 10% of car parking spaces associated with a Class 5 or 6 building; or
   (iii) 20% of car parking spaces associated with a Class 3, 7b, 8 or 9 building; and
-(f)
-  (i) contain space of at least 36 mm width of DIN rail per outgoing circuit for individual sub-circuit for individual sub-circuit electricity metering to record electricity use of electric vehicle charging equipment; and
-  (ii) be labelled to indicate the use of the space required by (f) is for the future installation of metering equipment.
+(f) contain space of at least 36 mm width of DIN rail per outgoing circuit for individual sub-circuit for individual sub-circuit electricity metering to record electricity use of electric vehicle charging equipment; and
+(g) be labelled to indicate the use of the space required by (f) is for the future installation of metering equipment.
 
 > **Limitation**
 >

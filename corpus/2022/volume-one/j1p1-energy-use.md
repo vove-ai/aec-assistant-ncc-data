@@ -23,15 +23,14 @@ defined_terms:
 
 **(1)** A building, other than a sole-occupancy unit of a Class 2 building or a Class 4 part of a building, including its services, must have features that facilitate the efficient use of energy appropriate to—
 
-(a)
-  (i) the function and use of the building; and
-  (ii) the level of human comfort required for the building use; and
-(b) solar radiation being—
+(a) the function and use of the building; and
+(b) the level of human comfort required for the building use; and
+(c) solar radiation being—
   (i) utilised for heating; and
   (ii) controlled to minimise energy for cooling; and
-(c) the energy source of the services; and
-(d) the sealing of the building envelope against air leakage; and
-(e) for a conditioned space, achieving an hourly regulated energy consumption, averaged over the annual hours of operation, of not more than—
+(d) the energy source of the services; and
+(e) the sealing of the building envelope against air leakage; and
+(f) for a conditioned space, achieving an hourly regulated energy consumption, averaged over the annual hours of operation, of not more than—
   (i) for a Class 6 building, 80 kJ/m².hr; and
   (ii) for a Class 5, 7b, 8 or 9a building other than a ward area, or a Class 9b school, 43 kJ/m².hr; and
   (iii) for all other building classifications, 15 kJ/m².hr.
