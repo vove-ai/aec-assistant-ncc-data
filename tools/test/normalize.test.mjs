@@ -841,6 +841,38 @@ test('an authoring placeholder is not a figure designation', () => {
     + '<image-reference><num><placeholder outputclass="placeholder">[NUMBER]</placeholder></num>'
     + '<title>Front Cover - Volume Two</title><image alt="c" src="cover-front-vol2.pdf" href="../Images/cover-front-vol2.pdf"/>'
     + '</image-reference></page>', { kind: 'page', id: null, title: 'Front Cover' });
-  assert.match(body, /^!\[Figure: Front Cover - Volume Two\]/m);
+  assert.match(body, /^\[Figure: Front Cover - Volume Two\]/m);
   assert.ok(!/\[NUMBER\]/.test(body), 'the placeholder never ships as content');
+});
+
+test('a .pdf figure ships as a link, not an image that renders as nothing', () => {
+  const body = md22('<page outputclass="page"><title>Front Cover</title>'
+    + '<image-reference><title>Front Cover - Volume Two</title>'
+    + '<image alt="c" src="cover-front-vol2.pdf" href="../Images/cover-front-vol2.pdf"/>'
+    + '</image-reference></page>', { kind: 'page', id: null, title: 'Front Cover' });
+  assert.match(body, /^\[Figure: Front Cover - Volume Two\]\(https:\/\/cdn\.aecassistant\.com\.au\/images\/ncc\/2022\/volume1\/cover-front-vol2\.pdf\)$/m);
+  assert.ok(!body.includes('!['), 'the image syntax draws nothing for a PDF');
+});
+
+test('an .eps CLAUSE figure ships as a link, caption intact so one grep still reaches it', () => {
+  // Not front matter: HP 7.4.4's valley gutter profile is a real figure a clause cites, and three
+  // more .eps assets are NT/SA variation figures. `![](….eps)` renders as nothing everywhere.
+  const body = md22('<clause><num>7.4.4</num><title>Valley gutters</title>'
+    + '<image-reference><num>7.4.4</num><title>Valley gutter profile</title>'
+    + '<image alt="v" src="image-7-4-4-explanatory-valley-gutter-profile.eps" href="x"/>'
+    + '</image-reference></clause>', { kind: 'clause', id: '7.4.4', title: 'Valley gutters' });
+  assert.match(body, /^\[Figure 7\.4\.4: Valley gutter profile\]\(.*image-7-4-4-explanatory-valley-gutter-profile\.eps\)$/m);
+  assert.ok(!body.includes('!['), 'the image syntax draws nothing for an EPS');
+});
+
+test('the renderable formats keep the image syntax', () => {
+  for (const [src, drawn] of [['a.svg', true], ['a.PNG', true], ['a.jpg', true], ['a.jpeg', true],
+    ['a.gif', true], ['a.pdf', false], ['a.eps', false], ['a.EPS', false], ['noextension', false]]) {
+    const body = md22(`<clause><num>1</num><title>T</title><image-reference><num>1a</num><title>C</title>`
+      + `<image alt="a" src="${src}" href="x"/></image-reference></clause>`,
+    { kind: 'clause', id: '1', title: 'T' });
+    assert.equal(body.includes('!['), drawn, `${src} should ${drawn ? '' : 'not '}use the image syntax`);
+    assert.ok(body.includes(`[Figure 1a: C](https://cdn.aecassistant.com.au/images/ncc/2022/volume1/${src})`),
+      `${src} always carries the caption and the URL, whichever syntax it uses`);
+  }
 });

@@ -8,4 +8,4 @@ jurisdiction: aus
 
 # Front Cover - Volume One
 
-![Figure: Front Cover - Volume One](https://cdn.aecassistant.com.au/images/ncc/2022/volume1/cover-front-vol1.pdf)
+[Figure: Front Cover - Volume One](https://cdn.aecassistant.com.au/images/ncc/2022/volume1/cover-front-vol1.pdf)

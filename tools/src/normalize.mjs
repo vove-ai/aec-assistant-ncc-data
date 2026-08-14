@@ -842,6 +842,15 @@ function renderImageReference(node, sink, st, depth) {
   for (const c of rest) renderBlock(c, sink, st, depth);
 }
 
+/**
+ * The formats a markdown renderer actually draws from `![](…)`.
+ *
+ * An ALLOWLIST, not a denylist, and the direction is the point: an unrecognised format degrades to
+ * a link, which always works, rather than to an image tag that may render as nothing. The corpus
+ * ships 12 assets outside this set — 8 cover `.pdf` and 4 `.eps`, all in 2022.
+ */
+const INLINE_RENDERABLE = new Set(['.svg', '.png', '.jpg', '.jpeg', '.gif', '.webp', '.avif']);
+
 function figureLine(img, num, title, st) {
   // 2022's own `href` is a publishing-session path, an ERROR_IN_RESOLVING_URI string or a leaked
   // absolute Windows authoring path — never a filename. read-2022.mjs resolves the real Images/
@@ -852,7 +861,15 @@ function figureLine(img, num, title, st) {
   // "Figure A2G1" is the corpus's own citation form, so a clause citing the figure and the figure
   // itself both match one grep — acceptance test #4 holds by construction.
   const alt = `Figure${num ? ` ${num}` : ''}${title ? `: ${title}` : ''}`;
-  return `![${alt}](${figureUrl(src, st)})`;
+  // `![](…)` around a .pdf or .eps renders as NOTHING in every markdown renderer: the citing clause
+  // silently loses its figure, while a CDN check still reports the URL live — the same invisible
+  // failure one layer up. A link keeps the promise the image syntax was making. The caption is
+  // unchanged, so one grep still reaches it, and the agent still gets the URL. Four of the twelve
+  // are real clause figures rather than front matter (HP 7.4.4's valley gutter profile, plus the
+  // NT wall-shading and SA eaves-encroachment variations).
+  const dot = src.lastIndexOf('.');
+  const bang = dot > 0 && INLINE_RENDERABLE.has(src.slice(dot).toLowerCase()) ? '!' : '';
+  return `${bang}[${alt}](${figureUrl(src, st)})`;
 }
 
 /** A wrapper's number: the 2025 `@num` attribute or the 2022 `<num>` child element. */
