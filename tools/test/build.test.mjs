@@ -17,7 +17,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import {
   EDITIONS, KNOWN_EDITIONS, NULL_WEB_URL_CLAUSES, PARITY, PARITY_UNAVAILABLE, inScope,
-  forwardRefCheck, nullWebUrlException, parityCheck, parseArgs, planReconcile, report, resolveUniqueness,
+  forwardRefCheck, identityUnstatedError, nullWebUrlException, parityCheck, parseArgs, planReconcile, report, resolveUniqueness,
   warningCategory, withholdPartialGlossary,
 } from '../src/build.mjs';
 import { DOCUMENTS_2025, readDocument2025 } from '../src/read-2025.mjs';
@@ -935,4 +935,33 @@ test('R62: a renumbered designation that is a REAL designation here is not a for
 
 test('R62: an edition with no declaration and no renumbering is silent', () => {
   assert.equal(forwardRefCheck('2025', [rec('2025/x.md', '---\nclause: X\n---\n\nBody.\n')], []), null);
+});
+
+/* -- R62 is a WHOLE-EDITION check, like parity and the glossary guard ---------- */
+
+test('R62: a slice is not evidence about the corpus, so the reconciliation is skipped', () => {
+  // Both halves of this check are false on a partial run, and both fired before it was scoped:
+  // `--volumes volume-two` reported the other documents' listed tokens as "no longer present"
+  // (their files were not built) AND reported F1D6/F1D7/F1D8 as "unlisted" (the designations that
+  // make them legitimate live in documents that were not built either, so the exclusion set was
+  // incomplete). Slicing is a supported mode; asserting on one turned it into a broken build.
+  const records = [rec('2022/volume-two/x.md', '---\nclause: X\n---\n\nsee B9D9 here.\n')];
+  const renumbered = [{ base: 'B9D8', accepted: 'B9D9', file: 'B9D9.xml' }];
+  assert.ok(forwardRefCheck('2022', records, renumbered, { complete: true }),
+    'a COMPLETE run still reconciles — the guard must not disable the check outright');
+  assert.equal(forwardRefCheck('2022', records, renumbered, { complete: false }), null);
+  // …in the other direction too: every listed token is absent from this one-file slice.
+  assert.equal(forwardRefCheck('2022', records, [], { complete: false }), null);
+});
+
+/* -- R55: the guard that keeps the identity join from degrading silently -------- */
+
+test('R55: a clauseref stating fewer than both identities fails the build', () => {
+  // `idBad`/`titleBad` are each guarded by Boolean(want…), which is correct while both attributes
+  // are always present — and means the whole join degrades to "no guard" if one ever is not.
+  assert.equal(identityUnstatedError(0), null, 'silent when the source is as measured');
+  const out = identityUnstatedError(3);
+  assert.match(out, /3 clauseref\(s\) state fewer than both of the identities/);
+  assert.match(out, /<clause @id> and <title @id>/, 'names both, so the reader knows what to look for');
+  assert.match(out, /reopen the cross-publication defect/, 'and says what is at stake');
 });

@@ -1147,6 +1147,21 @@ export function readPackage2022(pkgDir, doc, { sections = null, diagnostics = nu
         + 'a sibling FILE, and doing that across packages is the general cross-package read this ruling '
         + 'declined. Establish where the variation target lives before recovering this clause.', at);
     }
+    // The same reasoning one level down. A recovered clause is emitted under THIS package's
+    // filename, so `spliceWrappers` would resolve any <image-reference>/<table-reference> conref
+    // against THIS package's wrapper index instead of the supplying one — attaching the wrong
+    // figure or table, or dropping one, without a word. All four recoveries carry only <xref>, so
+    // this costs nothing today; the next one might not, and a wrong table of numeric limits is the
+    // defect class this pipeline exists to prevent.
+    for (const el of root.getElementsByTagName('*')) {
+      const tag = el.nodeName;
+      if ((tag === 'image-reference' || tag === 'table-reference') && attr(el, 'conref')) {
+        failLoud(`R60 recovery for ${recovery.clause} cites a <${tag}>. Its conref would be resolved against `
+          + `${doc.key}'s wrapper index rather than ${recovery.from}'s, which can attach the wrong figure `
+          + 'or table, or drop one silently. Resolve wrappers against the supplying package before '
+          + 'recovering a clause that cites any.', at);
+      }
+    }
     applyBaseView(dom);
     return root;
   }
@@ -1672,9 +1687,6 @@ export function readPackage2022(pkgDir, doc, { sections = null, diagnostics = nu
     return list.filter(e => e.volume === doc.key && !fired.has(`${doc.key}|${e.conref}`))
       .map(e => ({ list: name, volume: e.volume, clause: e.clause, conref: e.conref }));
   }
-  dg.unfiredOmissions = OMITTED_2022_CLAUSES
-    .filter(e => e.volume === doc.key && !omissionsFired.has(`${doc.key}|${e.conref}`))
-    .map(e => ({ volume: e.volume, clause: e.clause, conref: e.conref }));
 
   if (diagnostics && typeof diagnostics === 'object') Object.assign(diagnostics, dg);
   return units;

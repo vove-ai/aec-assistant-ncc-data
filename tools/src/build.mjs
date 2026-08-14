@@ -780,7 +780,7 @@ function buildEdition(editionKey, opts) {
   const recoveredClauses = [];
   const supersededNullClauses = [];
   const renumbered = [];
-  const unfiredOmissions = [];
+  const unfiredRulings = [];
   let identityRedirects = 0;
   let identityUnstated = 0;
   const sectionsSeen = new Set();
@@ -803,7 +803,7 @@ function buildEdition(editionKey, opts) {
     const all = ed.readUnits(doc, { diagnostics });
     for (const d of diagnostics.droppedCitations ?? []) droppedCitations.push({ doc: doc.key, ...d });
     for (const o of diagnostics.omittedClauses ?? []) omittedClauses.push({ doc: doc.key, ...o });
-    for (const u of diagnostics.unfiredRulings ?? []) unfiredOmissions.push(u);
+    for (const u of diagnostics.unfiredRulings ?? []) unfiredRulings.push(u);
     for (const r of diagnostics.recoveredClauses ?? []) recoveredClauses.push({ doc: doc.key, ...r });
     for (const r of diagnostics.renumbered ?? []) renumbered.push({ doc: doc.key, ...r });
     identityRedirects += diagnostics.map?.identityRedirects ?? diagnostics.identityRedirects ?? 0;
@@ -906,25 +906,21 @@ function buildEdition(editionKey, opts) {
   // R51/R52/R60: a clauseref ruling that matched nothing is a ruling that has gone stale against
   // the source. Asserted here rather than in the reader because the reader is also handed synthetic
   // fixture packages that carry a real document key and none of the real clauserefs.
-  if (unfiredOmissions.length) {
+  if (unfiredRulings.length) {
     failures.push([
-      `build: ${unfiredOmissions.length} clauseref ruling(s) matched nothing in the package they name. `
+      `build: ${unfiredRulings.length} clauseref ruling(s) matched nothing in the package they name. `
       + 'Either the source changed and the ruling no longer applies, or the conref was mistyped — and a '
       + 'ruling about published Code must not stop applying unnoticed. Re-establish what the map says '
       + 'before removing or correcting the entry.',
-      ...unfiredOmissions.map(u => `  ${u.list ?? 'ruling'}  ${u.volume}  ${u.clause}  ${u.conref}`),
+      ...unfiredRulings.map(u => `  ${u.list ?? 'ruling'}  ${u.volume}  ${u.clause}  ${u.conref}`),
     ].join('\n'));
   }
 
   // R55's precondition, asserted rather than assumed: every clauseref states BOTH of the identities
   // the join compares. If a future release drops one, `idBad`/`titleBad` quietly degrade to "no
   // guard" and every disagreement becomes a silent pass — the exact failure R51 exists to stop.
-  if (identityUnstated) {
-    failures.push(`build: ${identityUnstated} clauseref(s) state fewer than both of the identities the map `
-      + 'normally carries (<clause @id> and <title @id>). The identity join cannot judge those, and '
-      + 'treating them as confirmed would reopen the cross-publication defect R51 closed. Establish what '
-      + 'the source now emits before trusting this build.');
-  }
+  const identityFailure = identityUnstatedError(identityUnstated);
+  if (identityFailure) failures.push(identityFailure);
 
   // R50, the same staleness discipline the clauseref rulings have: an exception that can never
   // fire is a claim about the source that nobody is checking. Scoped to the documents this run
@@ -934,9 +930,12 @@ function buildEdition(editionKey, opts) {
   // An entry whose clause is OMITTED under R51/R56 has not gone stale — it has been SUPERSEDED,
   // and by a ruling that cites the same evidence. Deleting it would throw away a measurement about
   // a page that still does not exist; treating it as dead would fail every build. It is recorded
-  // as superseded and printed, which is the only outcome that is true.
-  const supersededNulls = new Set(NULL_WEB_URL_CLAUSES.filter(e => omittedClauses
-    .some(o => o.doc === e.volume && o.clause === e.clause)));
+  // as superseded and printed, which is the only outcome that is true. Derived from the omission
+  // that actually FIRED, never a hand-set flag, so it cannot outlive the ruling that caused it —
+  // and matched on edition and reason as well as name, since another edition may use both again.
+  const supersededNulls = new Set(NULL_WEB_URL_CLAUSES.filter(e => e.edition === String(editionKey)
+    && omittedClauses.some(o => o.doc === e.volume && o.clause === e.clause
+      && (o.reason === 'map-identity-unresolved' || o.reason === 'clause-is-2025-only'))));
   const deadNulls = NULL_WEB_URL_CLAUSES.filter(e => e.edition === String(editionKey)
     && selectedVolumes.has(e.volume) && !firedNulls.has(e) && !supersededNulls.has(e));
   if (deadNulls.length) {
@@ -953,7 +952,12 @@ function buildEdition(editionKey, opts) {
 
   // R62: what the corpus publishes must match what its index says about the Code's own forward
   // references. Run on the emitted records, so it reads the bytes rather than an intention.
-  const forwardFailure = forwardRefCheck(editionKey, records, renumbered);
+  // Exact set equality against the edition's documents, the same ownership test the glossary guard
+  // uses — so naming every document explicitly is not punished, and a slice is never mistaken for
+  // the whole.
+  const complete = selectedVolumes.size === ed.documents.length
+    && ed.documents.every(d => selectedVolumes.has(d.key));
+  const forwardFailure = forwardRefCheck(editionKey, records, renumbered, { complete });
   if (forwardFailure) failures.push(forwardFailure);
 
   // A run that did not read every document must not rewrite the glossary from a partial view.
@@ -1258,7 +1262,37 @@ function droppedCitationsBlock(built) {
  *
  * @returns {?string} a failure naming both directions of the difference, or null.
  */
-export function forwardRefCheck(editionKey, records, renumbered) {
+/**
+ * R55 — every clauseref must state BOTH of the identities the join compares.
+ *
+ * `read-2022.mjs` judges a clauseref by comparing the map's `<clause @id>` and `<title @id>` with
+ * the file the `conref` names, and each comparison is guarded by `Boolean(want…)`. That is correct
+ * while both are always present — measured 0 of 2,061 missing either — but it means the guard
+ * DEGRADES SILENTLY: if a future ABCB release stops emitting one, every disagreement becomes a
+ * confirmed join and the cross-publication defect R51 closed reopens with nothing said.
+ *
+ * A pure function so the failure text is testable without a build. Extracted for exactly that:
+ * the counter was correct by inspection and exercised by nothing.
+ *
+ * @param {number} count  clauserefs stating fewer than both identities
+ * @returns {?string} the failure, or null
+ */
+export function identityUnstatedError(count) {
+  if (!count) return null;
+  return `build: ${count} clauseref(s) state fewer than both of the identities the map normally carries `
+    + '(<clause @id> and <title @id>). The identity join cannot judge those, and treating them as '
+    + 'confirmed would reopen the cross-publication defect R51 closed. Establish what the source now '
+    + 'emits before trusting this build.';
+}
+
+export function forwardRefCheck(editionKey, records, renumbered, { complete = true } = {}) {
+  // Whole editions only, exactly as parityCheck and the glossary guard work. Both halves of this
+  // reconciliation are false on a slice, and both fired: `--volumes volume-two` reported the other
+  // documents' five listed tokens as "no longer present" (their files were not built) AND reported
+  // F1D6/F1D7/F1D8 as "unlisted" (their legitimate 2022 designations live in documents that were
+  // not built either, so the exclusion set was incomplete). A slice is not evidence about the
+  // corpus as a whole, and asserting on one turns a supported mode into a broken build.
+  if (!complete) return null;
   const declared = SOURCE_FORWARD_REFS.get(editionKey);
   if (!declared && !renumbered.length) return null;
   const bodies = [...records].map(r => String(r.content ?? '').split('\n---\n').slice(1).join('\n---\n'));

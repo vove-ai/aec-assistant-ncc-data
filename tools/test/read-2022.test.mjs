@@ -178,8 +178,11 @@ const clauseref = (conref, id = null) =>
   + '<sptc/><title/><archive-num/></clause></clauseref>';
 
 /** A minimal but real-shaped 2022 package, materialised on disk. */
-function fixturePackage(overrides = {}) {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'ncc-2022-fixture-'));
+function fixturePackage(overrides = {}, at = null) {
+  // `at` places the package at a caller-chosen path, so a test can build TWO of them side by side
+  // under one parent — which is the shape R60's cross-package recovery reads.
+  const dir = at ?? fs.mkdtempSync(path.join(os.tmpdir(), 'ncc-2022-fixture-'));
+  fs.mkdirSync(dir, { recursive: true });
   const files = {
     // ---- the publication spine -------------------------------------------------
     'XMLs/FlattenedFile.xml': `<?xml version="1.0"?><abcb-map ${XT} publishing-id="vol1" publishing-year="2025" short-title="Volume One"><title>NCC 2025 Volume One</title>`
@@ -1112,5 +1115,57 @@ test('R51: every ruling names a volume, a conref and evidence a reader can check
     assert.ok(e.evidence.length >= 80, 'evidence is a measurement, not a label');
     assert.equal(staleRootId(e.volume, e.conref), e);
     assert.equal(staleRootId('volume-two', e.conref), null, 'the key is volume + conref');
+  }
+});
+
+test('R55: the reader COUNTS clauserefs that state fewer than both identities', () => {
+  // The counter build.mjs asserts on. Measured 0 of 2,061 in all four packages, so nothing in the
+  // real data exercises it — and a guard that has never been seen to fire is a guard nobody knows
+  // works. Two of the three clauserefs below state neither identity, one states both.
+  withFixture(dir => {
+    const diagnostics = {};
+    readPackage2022(dir, VOL1, { diagnostics });
+    assert.equal(diagnostics.map.mapped, 3);
+    assert.equal(diagnostics.map.identityUnstated, 2,
+      'both under-specified clauserefs are counted; the fully-stated one is not');
+  }, {
+    'XMLs/FlattenedFile.xml': mapWith(
+      clauseref('A1G1-scope.xml')                                        // states neither
+      + '<clauseref outputclass="clausref-ncc"><clause conref="B1D2-x.xml" id="_b1d2" '
+      + 'outputclass="ncc-clause"><sptc/><title/><archive-num/></clause></clauseref>'  // id only
+      + identifiedRef('B1D3-y.xml', '_b1d3', '_b1d3Title')),             // states both
+    'XMLs/B1D2-x.xml': identifiedClause('B1D2', 'X', 'Body X.', '_b1d2', '_b1d2Title'),
+    'XMLs/B1D3-y.xml': identifiedClause('B1D3', 'Y', 'Body Y.', '_b1d3', '_b1d3Title'),
+  });
+});
+
+test('R60: a recovered clause citing a figure or table wrapper is REFUSED, not guessed', () => {
+  // Latent today — all four recoveries carry only <xref> — and worth closing because the failure
+  // would be silent. The unit is emitted under THIS package's filename, so a wrapper conref would
+  // resolve against THIS package's wrapper index: the wrong figure attached, or an unresolvable
+  // one dropped without a word. A wrong table of numeric limits is the defect class this pipeline
+  // exists to prevent, so the recovery refuses rather than resolving against the wrong index.
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'ncc-2022-sibling-'));
+  try {
+    // A sibling package holding the wanted identity, whose clause cites a table wrapper.
+    const sibDir = path.join(tmp, DOCUMENTS_2022.find(d => d.key === 'volume-three').pkg, 'XMLs');
+    fs.mkdirSync(sibDir, { recursive: true });
+    fs.writeFileSync(path.join(sibDir, 'B1D1-deemed-to-satisfy-provisions.xml'),
+      '<?xml version="1.0"?><?Xpress productLine="ncc-clause" ?>'
+      + '<clause id="_00602d3a-be90-4fa0-9215-2a79f954937c" outputclass="ncc-clause">'
+      + '<sptc>B1D1</sptc><title id="_50d46460-6dd7-402e-a1cf-53d1146449ff">Deemed-to-Satisfy Provisions</title>'
+      + '<archive-num/><subclause outputclass="subclause"><title>SubClause</title><num>1</num>'
+      + '<p>See the table.</p><table-reference conref="/tmp/QppServer/z.xml" id="_t1"/></subclause></clause>');
+    const pkgDir = path.join(tmp, DOCUMENTS_2022[0].pkg);
+    fixturePackage({}, pkgDir);
+    fs.writeFileSync(path.join(pkgDir, 'XMLs', 'FlattenedFile.xml'),
+      mapWith(identifiedRef('B1D1-deemed-to-satisfy-provisions.xml',
+        '_00602d3a-be90-4fa0-9215-2a79f954937c', '_50d46460-6dd7-402e-a1cf-53d1146449ff')));
+    fs.writeFileSync(path.join(pkgDir, 'XMLs', 'B1D1-deemed-to-satisfy-provisions.xml'),
+      identifiedClause('B1D1', 'Deemed-to-Satisfy Provisions', 'The wrong publication.', '_other', '_otherTitle'));
+    assert.throws(() => readPackage2022(pkgDir, VOL1, { diagnostics: {} }),
+      /cites a <table-reference>[\s\S]*wrapper index rather than volume-three's/);
+  } finally {
+    fs.rmSync(tmp, { recursive: true, force: true });
   }
 });
