@@ -18,7 +18,7 @@ import fs from 'node:fs';
 import {
   EDITIONS, KNOWN_EDITIONS, NULL_WEB_URL_CLAUSES, PARITY, PARITY_UNAVAILABLE, inScope,
   nullWebUrlException, parityCheck, parseArgs, planReconcile, report, resolveUniqueness,
-  warningCategory,
+  warningCategory, withholdPartialGlossary,
 } from '../src/build.mjs';
 import { DOCUMENTS_2025, readDocument2025 } from '../src/read-2025.mjs';
 import { normalizeUnit, figureUrlPrefix } from '../src/normalize.mjs';
@@ -278,6 +278,13 @@ test('branch 4 — a figure with a DIFFERENT filename is still a real difference
   const md = out.write.get('2025/glossary/foundation.md');
   assert.equal(out.glossary[0].variants, 2);
   assert.ok(md.includes('image-5-foundation.svg') && md.includes('image-9-something-else.svg'), md);
+  // …and BOTH are addressed under the CANONICAL document's CDN key. The file is cited to Volume One
+  // and lives in one directory, so a volume2 URL inside it would break the one-directory-one-cdnKey
+  // invariant the corpus is checked on — a figure attributed to a volume the file does not come
+  // from. No 2025 entry is both multi-variant and figure-bearing, so this is the shape a future
+  // edition would arrive in rather than a live case.
+  assert.ok(md.includes(`${CDN}/volume1/image-9-something-else.svg`), md);
+  assert.ok(!md.includes(`${CDN}/volume2/`), `a non-canonical CDN key survived the merge:\n${md}`);
 });
 
 test('branch 4 — text the documents genuinely publish differently ships as BOTH, labelled', () => {
@@ -462,6 +469,76 @@ test('branch 4 — the fold classifies the REAL 2025 glossary exactly as it was 
       assert.ok(listing.has(decodeURIComponent(file)), `${u}: no such file in ncc-2025-volume-one-v1.2/images/`);
     }
   });
+
+/* -- a partial run does not rewrite the glossary -- */
+
+const DOCS5 = ['volume-one', 'volume-two', 'volume-three', 'housing-provisions', 'livable-housing'];
+const GUARD = () => ({
+  all: DOCS5,
+  glossaryDirs: new Set(['glossary']),
+  ownedDirs: new Set(['volume-two', 'glossary']),
+  write: new Map([
+    ['2025/volume-two/h6d1-x.md', 'clause'],
+    ['2025/glossary/hours-of-operation.md', 'only volume two\'s wording'],
+    ['2025/glossary/abcb.md', 'agreed'],
+  ]),
+});
+
+test('a run that did not read every document withholds the glossary instead of narrowing it', () => {
+  // THE MEASURED FAILURE, on the real corpus, before this guard: `--volumes volume-two` rewrote
+  // 2025/glossary/hours-of-operation.md with only the Volume Two wording — both
+  // `## As published in …` headings gone, Volume One's sentence deleted, nothing asserting. That is
+  // the silent drop R33 exists to prevent, from a supported command. `foldGlossary` takes each
+  // entry's wording from the documents the run READ, so a run that read one of five must not
+  // rewrite a file assembled from four.
+  const g = withholdPartialGlossary({ selected: ['volume-two'], ...GUARD() });
+  assert.equal(g.owned, false);
+  assert.deepEqual(g.withheld, ['2025/glossary/abcb.md', '2025/glossary/hours-of-operation.md']);
+  assert.deepEqual([...g.write.keys()], ['2025/volume-two/h6d1-x.md'], 'the volume it DID read is still written');
+  // Dropping the directory from ownedDirs is what leaves the files alone: planReconcile keeps
+  // everything in a directory this run does not own, and report() prints it under `not audited`.
+  assert.deepEqual([...g.ownedDirs], ['volume-two']);
+  assert.deepEqual(planReconcile({
+    edition: '2025',
+    editionDirs: new Set(['glossary', 'volume-two']),
+    ownedDirs: g.ownedDirs,
+    producible: new Set(['2025/volume-two/h6d1-x.md']),
+    present: ['2025/glossary/', '2025/glossary/hours-of-operation.md', '2025/volume-two/', '2025/volume-two/h6d1-x.md'],
+  }).removePaths, [], 'and nothing is deleted either');
+});
+
+test('ownership is exact set equality, so naming every document explicitly is not punished', () => {
+  // `opts.volumes == null` would be the easy test and would make an explicit full list behave like
+  // a slice, leaving the glossary permanently stale for anyone who spells the run out.
+  const full = withholdPartialGlossary({ selected: [...DOCS5], ...GUARD() });
+  assert.equal(full.owned, true);
+  assert.deepEqual(full.withheld, []);
+  assert.equal(full.write.size, 3);
+  assert.deepEqual([...full.ownedDirs].sort(), ['glossary', 'volume-two']);
+  // Order must not matter, and four of five is still partial even though it is every document that
+  // HAS a glossary — which those are is a property of data a partial run did not read.
+  assert.equal(withholdPartialGlossary({ selected: [...DOCS5].reverse(), ...GUARD() }).owned, true);
+  assert.equal(withholdPartialGlossary({ selected: DOCS5.slice(0, 4), ...GUARD() }).owned, false);
+});
+
+test('a partial run with no glossary units is left alone — nothing to withhold', () => {
+  // `--volumes livable-housing` reads a document with no glossary at all, and `--sections A` emits
+  // none. Neither must lose its own output to a guard aimed at a directory it never touches.
+  const g = withholdPartialGlossary({
+    selected: ['livable-housing'], ...GUARD(), glossaryDirs: new Set(), ownedDirs: new Set(['livable-housing']),
+  });
+  assert.equal(g.owned, false);
+  assert.deepEqual(g.withheld, []);
+  assert.equal(g.write.size, 3);
+});
+
+test('the guard does not mutate what it is handed — a report may still describe the full run', () => {
+  const args = { selected: ['volume-two'], ...GUARD() };
+  const before = [...args.write.keys()];
+  withholdPartialGlossary(args);
+  assert.deepEqual([...args.write.keys()], before);
+  assert.deepEqual([...args.ownedDirs].sort(), ['glossary', 'volume-two']);
+});
 
 const RECONCILE = {
   edition: '2025',

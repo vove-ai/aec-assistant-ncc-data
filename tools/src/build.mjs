@@ -428,19 +428,25 @@ export function resolveUniqueness(records) {
 const FIGURE_CDN_PLACEHOLDER = '{figure-cdn}';
 
 /**
- * One document's copy of a glossary entry, with the part of it that is OUR artefact removed.
+ * One document's copy of a glossary entry with its figure URLs re-pointed at `target`.
  *
  * Every volume embeds the whole glossary, and each embeds its own copy of the figures, so this
  * pipeline hands the same entry a different `cdnKey` per volume: `…/2025/volume1/x.svg` from
- * Volume One and `…/2025/volume2/x.svg` from Volume Two. Nine 2025 entries differ across the four
- * documents in nothing else. Comparing raw bodies would classify those nine as text the NCC
- * publishes differently per volume, which is false — and would put nine spurious "as published in
- * …" merges in front of a reader as if the Code disagreed with itself.
+ * Volume One and `…/2025/volume2/x.svg` from Volume Two. It has TWO callers, and they are the two
+ * halves of one idea:
  *
- * Only the emitting document's OWN prefix is neutralised, never a volume name wherever it appears,
+ *  * COMPARING — target is a placeholder. Nine 2025 entries differ across the four documents in
+ *    nothing but that key. Comparing raw bodies would classify those nine as text the NCC
+ *    publishes differently per volume, which is false, and would put nine spurious "as published
+ *    in …" merges in front of a reader as if the Code disagreed with itself.
+ *  * EMITTING — target is the CANONICAL document's prefix. A folded file is cited to one document,
+ *    so every figure in it must be addressed under that document's key: one directory, one cdnKey.
+ *    Without this a merged entry would carry a `volume2` URL inside a file cited to Volume One.
+ *
+ * Only the emitting document's OWN prefix is rewritten, never a volume name wherever it appears,
  * so two entries citing genuinely different files still differ.
  */
-function neutralizeFigureCdn(record) {
+function rewriteFigureCdn(record, target) {
   const prefix = record.figurePrefix;
   if (!prefix) {
     throw new Error(
@@ -450,8 +456,10 @@ function neutralizeFigureCdn(record) {
       + 'figure-bearing entry as text the volumes disagree on.',
     );
   }
-  return record.normalized.bodyMd.split(`${prefix}/`).join(`${FIGURE_CDN_PLACEHOLDER}/`);
+  return record.normalized.bodyMd.split(`${prefix}/`).join(`${target}/`);
 }
+
+const neutralizeFigureCdn = record => rewriteFigureCdn(record, FIGURE_CDN_PLACEHOLDER);
 
 /**
  * Group in first-seen order, so the result never depends on Map iteration or on a sort.
@@ -518,7 +526,16 @@ function foldGlossary(relPath, perDocument) {
   // from the same place. Flat `## ` headings, deliberately: an entry that is BOTH multi-sense and
   // multi-document would otherwise need a heading level per axis, and every sense would still be
   // visible here — losing content is the failure mode this guards against, not untidy nesting.
-  const parts = classes.map(c => c.members[0]);
+  //
+  // Every part's figure URLs are re-pointed at the CANONICAL document, not left on the volume the
+  // wording came from. The file is cited to one document and lives in one directory, so a `volume2`
+  // URL inside a file cited to Volume One would break the one-directory-one-cdnKey invariant the
+  // corpus is checked on. No 2025 entry is both multi-variant and figure-bearing, so this changes
+  // no byte of the current corpus — it is the shape a future edition would arrive in.
+  const parts = classes.map(c => ({
+    ...c.members[0],
+    normalized: { ...c.members[0].normalized, bodyMd: rewriteFigureCdn(c.members[0], canonical.figurePrefix) },
+  }));
   return {
     content: mergedRecord(canonical, parts, classes.map(c => `As published in ${listDocuments(c.members)}`), { sources }).content,
     census,
@@ -643,6 +660,51 @@ function diffSummary(variants) {
   return out;
 }
 
+/**
+ * A run that cannot see the whole glossary does not rewrite ANY of it.
+ *
+ * The glossary is the one part of the corpus assembled from several documents at once, and
+ * `foldGlossary` takes each entry's wording from the documents this run READ. A `--volumes
+ * volume-two` run therefore rewrites all 555 files from a one-document view — and for an entry the
+ * documents publish differently that is a SILENT DROP of published NCC text. Measured on the real
+ * corpus before this guard: `--volumes volume-two` rewrote `hours-of-operation.md` with only the
+ * Volume Two wording, both `## As published in …` headings gone, Volume One's sentence deleted, no
+ * assertion firing anywhere. Nothing else in the repo catches it — CI never runs a build, and the
+ * acceptance suite passes on the corrupted file, because #5 still holds and #1 is clause-only.
+ *
+ * So the rule is `planReconcile`'s, applied to the one directory that rule cannot express: a run
+ * only audits what it fully covers. Withheld files are left EXACTLY as they are, and the glossary
+ * directory drops out of `ownedDirs`, which puts it on the report's `not audited` line for free.
+ *
+ * Ownership is exact set equality against the edition's documents, not `opts.volumes == null`, so
+ * naming every document explicitly is not punished. It is deliberately not "every document that
+ * HAS a glossary": which those are is a property of data this run did not read, and a declared list
+ * would be a claim to keep in sync with the source.
+ *
+ * @param {{selected: string[], all: string[], write: Map<string,string>,
+ *          ownedDirs: Set<string>, glossaryDirs: Set<string>}} args
+ * @returns {{write: Map<string,string>, ownedDirs: Set<string>, withheld: string[], owned: boolean}}
+ *   Fresh collections; the inputs are not mutated.
+ */
+export function withholdPartialGlossary({ selected, all, write, ownedDirs, glossaryDirs }) {
+  const owned = selected.length === all.length && all.every(k => selected.includes(k));
+  if (owned || !glossaryDirs.size) {
+    return { write, ownedDirs, withheld: [], owned };
+  }
+  const kept = new Map();
+  const withheld = [];
+  for (const [relPath, content] of write) {
+    if (glossaryDirs.has(relPath.split('/')[1])) withheld.push(relPath);
+    else kept.set(relPath, content);
+  }
+  return {
+    write: kept,
+    ownedDirs: new Set([...ownedDirs].filter(d => !glossaryDirs.has(d))),
+    withheld: withheld.sort(byCodepoint),
+    owned,
+  };
+}
+
 /* ============================================================================
  * Deletion — what a run owns
  * ========================================================================= */
@@ -709,6 +771,7 @@ function buildEdition(editionKey, opts) {
 
   const records = [];
   const producible = new Set();
+  const glossaryDirs = new Set();
   const unresolvedClauses = [];
   const unresolvedOther = [];
   const permittedNullClauses = [];
@@ -733,7 +796,11 @@ function buildEdition(editionKey, opts) {
     const all = ed.readUnits(doc, { diagnostics });
     for (const d of diagnostics.droppedCitations ?? []) droppedCitations.push({ doc: doc.key, ...d });
     for (const u of all) {
-      producible.add(unitRelPath(u));
+      const rel = unitRelPath(u);
+      producible.add(rel);
+      // Derived from the units themselves rather than from `emit.mjs`'s default, so the guard below
+      // still finds the directory if `glossaryDir` is ever configured differently.
+      if (u.kind === 'glossary') glossaryDirs.add(rel.split('/')[1]);
       sectionsSeen.add(String(u.sectionNum ?? ''));
     }
     const scoped = all.filter(u => inScope(u, opts.sections));
@@ -824,6 +891,18 @@ function buildEdition(editionKey, opts) {
   const parityFailure = parityCheck(editionKey, stats.parity);
   if (parityFailure) failures.push(parityFailure);
 
+  // A run that did not read every document must not rewrite the glossary from a partial view.
+  // Applied AFTER the assertions, so a partial run is still told about a conflict it would have
+  // caused, and before anything is counted or written, so no report line describes a file this run
+  // is not going to produce.
+  const glossaryGuard = withholdPartialGlossary({
+    selected: docs.map(d => d.key),
+    all: ed.documents.map(d => d.key),
+    write: resolved.write,
+    ownedDirs: new Set([...producible].map(p => p.split('/')[1])),
+    glossaryDirs,
+  });
+
   // The figures the corpus PUBLISHES, read back off the bytes about to be written rather than
   // accumulated from the units. The two differ, and only this one is actionable: every volume
   // embeds the glossary, so a shared entry's figure is counted once per volume in `stats.figures`
@@ -833,11 +912,11 @@ function buildEdition(editionKey, opts) {
   const figureUrl = new RegExp(
     `(?:${docs.map(d => escapeRe(figureUrlPrefix({ year: ed.year, cdnKey: d.cdnKey }))).join('|')})/[^)\\s]+`, 'g');
   const publishedFigures = new Set();
-  for (const content of resolved.write.values()) for (const m of content.matchAll(figureUrl)) publishedFigures.add(m[0]);
+  for (const content of glossaryGuard.write.values()) for (const m of content.matchAll(figureUrl)) publishedFigures.add(m[0]);
 
   const firstByPath = new Map();
   for (const r of records) if (!firstByPath.has(r.relPath)) firstByPath.set(r.relPath, r.unit);
-  const indexEntries = [...resolved.write.keys()].map(relPath => {
+  const indexEntries = [...glossaryGuard.write.keys()].map(relPath => {
     const u = firstByPath.get(relPath);
     return { relPath, kind: u.kind, id: u.id ?? null, term: u.term ?? null, title: u.title ?? '', state: u.state ?? null };
   });
@@ -845,10 +924,10 @@ function buildEdition(editionKey, opts) {
   return {
     editionKey,
     failures,
-    write: resolved.write,
+    write: glossaryGuard.write,
     producible,
     editionDirs: new Set([...ed.documents.map(d => d.key), 'glossary']),
-    ownedDirs: new Set([...producible].map(p => p.split('/')[1])),
+    ownedDirs: glossaryGuard.ownedDirs,
     indexEntries,
     unresolvedOther,
     permittedNullClauses,
@@ -858,8 +937,11 @@ function buildEdition(editionKey, opts) {
       duplicates: resolved.duplicates,
       merges: resolved.merges,
       glossary: resolved.glossary,
+      glossaryWithheld: glossaryGuard.withheld,
+      documentsSelected: docs.length,
+      documentsInEdition: ed.documents.length,
       publishedFigures,
-      paths: resolved.write.size,
+      paths: glossaryGuard.write.size,
     },
   };
 }
@@ -982,11 +1064,16 @@ export function report(built, io, opts) {
   out.push(`${pad('web_url', 22)}${[...s.webUrl.keys()].sort(byCodepoint)
     .map(k => `${k} ${s.webUrl.get(k).resolved}/${s.webUrl.get(k).total} (${pct(s.webUrl.get(k).resolved, s.webUrl.get(k).total)})`).join(' · ') || '(none)'}`);
   // Two numbers because they answer two questions, and printing only the first invites an operator
-  // to chase a discrepancy against `sync-figures` that is not one.
-  const folded = s.figures.size - (s.publishedFigures?.size ?? s.figures.size);
-  out.push(`${pad('figures', 22)}${s.publishedFigures?.size ?? s.figures.size} distinct URLs published`
+  // to chase a discrepancy against `sync-figures` that is not one. The gap has two possible
+  // causes and the line names the one that applies, rather than asserting the usual one.
+  const published = s.publishedFigures?.size ?? s.figures.size;
+  const unpublished = s.figures.size - published;
+  const why = s.glossaryWithheld?.length
+    ? 'the glossary was withheld, so this run publishes none of its figures'
+    : "a shared glossary entry's figure is published once, not once per volume";
+  out.push(`${pad('figures', 22)}${published} distinct URLs published`
     + ` · ${s.figures.size} distinct in the documents as read`
-    + (folded > 0 ? ` (${folded} are other volumes' copies of a shared glossary entry's figure)` : ''));
+    + (unpublished > 0 ? ` (${unpublished} not published — ${why})` : ''));
   const warnTotal = [...s.warnings.values()].reduce((a, b) => a + b, 0);
   out.push(`${pad('warnings', 22)}${warnTotal}${warnTotal ? ` — ${[...s.warnings.keys()].sort(byCodepoint).map(k => `${k} ${s.warnings.get(k)}`).join(' · ')}` : ''}`);
   out.push(`${pad('uniqueness', 22)}${s.paths} paths · ${s.duplicates} identical duplicate${s.duplicates === 1 ? '' : 's'} · ${s.merges.length} merged`);
@@ -1023,6 +1110,17 @@ export function report(built, io, opts) {
  */
 function glossaryLines(s) {
   const list = s.glossary ?? [];
+  // A withheld glossary REPLACES the census rather than appearing beside it. On a one-document run
+  // the census reads `555 paths · 0 shared across documents · 0 published differently`, which is
+  // true of what the run saw and useless as a signal — and it was the only signal there was.
+  if (s.glossaryWithheld?.length) {
+    return [`${pad('glossary', 22)}NOT WRITTEN — ${s.glossaryWithheld.length} file(s) withheld, `
+      + `this run selected ${s.documentsSelected} of ${s.documentsInEdition} documents`,
+    ...wrap('Every volume embeds the whole glossary, so a partial run would rewrite all of it from '
+      + 'a partial view: an entry the unselected documents publish differently would lose their '
+      + 'wording with no assertion firing. The existing files are left exactly as they are — '
+      + 'rebuild the whole edition to refresh them.', ' '.repeat(22))];
+  }
   if (!list.length) return [];
   const shared = list.filter(g => g.sources.length > 1);
   const variants = shared.filter(g => g.variants > 1);
