@@ -359,6 +359,19 @@ const UNIT_ELEMENT_TAGS = new Set([
 
 const RETENTION_ATTR = 'xt-base-view-retention';
 
+/**
+ * The mark on the RETAINED CONTAINER itself, as opposed to `RETENTION_ATTR`'s count on the enclosing
+ * unit. Two attributes because they answer two different questions and one cannot serve both: the
+ * unit's count says "this FILE must disclose", and this says "the text under THIS element is text
+ * the base view retained". R75 needs the second, because a correction may only touch retained text —
+ * see `applyRetainedTextCorrections`.
+ */
+const RETAINED_ATTR = 'xt-base-view-retained';
+
+/** Which R75 corrections were applied under an element, by index into the table. Read back off the
+ *  EMITTED unit, because only that pass knows which corpus file the text ended up in. */
+const CORRECTION_ATTR = 'xt-base-view-corrected';
+
 /** The unit element enclosing this one, or null when the retention sits outside every unit. */
 function enclosingUnit(el) {
   for (let p = el.parentNode; p && p.nodeType === 1; p = p.parentNode) {
@@ -486,6 +499,14 @@ for (const e of RETAINED_TEXT_CORRECTIONS) {
   }
 }
 
+/** Is this node inside a container the base view RETAINED? R75's precondition. */
+function insideRetained(node) {
+  for (let p = node.parentNode; p && p.nodeType === 1; p = p.parentNode) {
+    if (p.getAttribute?.(RETAINED_ATTR)) return true;
+  }
+  return false;
+}
+
 /**
  * Apply R75 to a materialised base view, in place. One text node at a time, and EXACTLY ONCE.
  *
@@ -493,6 +514,16 @@ for (const e of RETAINED_TEXT_CORRECTIONS) {
  * A count other than 1 throws: 0 means the source no longer says what the ruling was written
  * against, and 2 means the phrase is no longer the single site it was measured at — either way the
  * evidence has gone stale, and a correction to published Code must not apply itself on a guess.
+ *
+ * SCOPED TO RETAINED TEXT, and enforced rather than described. R75's whole justification is the
+ * class above: text kept from a container the 2025 draft marked as INSERTED is the draft author's
+ * TRANSCRIPTION, so it can diverge from the Code. Text the base view did not retain has clean NCC
+ * 2022 provenance — it is what the source says the Code says — and rewriting THAT would be this
+ * repository editing published law on its own authority, which no amount of evidence in a table
+ * entry makes acceptable. The mechanism is a general string edit, so without this test a future
+ * entry could do exactly that and every guard here (evidence, url, exactly-once, no duplicate keys)
+ * would still pass green while the paragraph above quietly became false. So a match outside a
+ * retained container is REFUSED, loudly, rather than applied.
  */
 function applyRetainedTextCorrections(doc, sourceFile, fired) {
   if (!sourceFile) return;
@@ -511,8 +542,23 @@ function applyRetainedTextCorrections(doc, sourceFile, fired) {
     for (const t of texts) {
       const n = t.data.split(e.find).length - 1;
       if (!n) continue;
+      if (!insideRetained(t)) {
+        throw new Error(`read-2022: the RETAINED_TEXT_CORRECTIONS entry for ${e.file} matched text the base view `
+          + `did not retain, in <${t.parentNode?.nodeName ?? '?'}> of ${sourceFile}. R75 corrects the 2025 draft `
+          + "author's re-typing INSIDE a container the draft marked as inserted; text outside one carries clean "
+          + 'NCC 2022 provenance, and rewriting it would be this repository editing the published Code on its own '
+          + `authority. Establish where the text sits — and what the Code prints there (${e.url}) — before `
+          + 'correcting it.');
+      }
       hits += n;
       t.data = t.data.split(e.find).join(e.replace);
+      // Which corpus files the correction reaches is not knowable here — a wrapper is spliced into
+      // its citing clause two passes later — so the fact is left ON the tree for `baseViewCorrections`
+      // to read off the emitted unit, exactly as the retention count is.
+      const at = t.parentNode;
+      const seen = (at?.getAttribute?.(CORRECTION_ATTR) ?? '').split(',').filter(Boolean);
+      const i = String(RETAINED_TEXT_CORRECTIONS.indexOf(e));
+      if (at?.setAttribute && !seen.includes(i)) at.setAttribute(CORRECTION_ATTR, [...seen, i].join(','));
     }
     if (hits !== 1) {
       throw new Error(`read-2022: the RETAINED_TEXT_CORRECTIONS entry for ${e.file} matched ${hits} times in the `
@@ -523,6 +569,32 @@ function applyRetainedTextCorrections(doc, sourceFile, fired) {
     }
     fired?.add(correctionKey(e));
   }
+}
+
+/**
+ * Where an R75 correction was actually applied, read off an emitted unit's subtree.
+ *
+ * The edition index has to name the CORPUS FILE a correction reached — the source XML basename is
+ * not something a consumer has — and only the emitted unit knows that: the correction fires in the
+ * reader, and a table wrapper does not join its citing clause until `splice` clones it two passes
+ * later. So the applying pass leaves the mark and this reads it back, on the same terms as
+ * `baseViewRetentionCount`, nested units included.
+ */
+export function baseViewCorrections(node) {
+  if (!node || node.nodeType !== 1) return [];
+  const out = new Set();
+  const add = el => {
+    for (const i of (el.getAttribute?.(CORRECTION_ATTR) ?? '').split(',').filter(Boolean)) {
+      const e = RETAINED_TEXT_CORRECTIONS[Number(i)];
+      if (e) out.add(e);
+    }
+  };
+  add(node);
+  for (const el of node.getElementsByTagName?.('*') ?? []) {
+    if (UNIT_ELEMENT_TAGS.has(el.nodeName)) continue;   // a nested unit answers for itself
+    add(el);
+  }
+  return [...out];
 }
 
 /**
@@ -636,6 +708,10 @@ export function applyBaseView(doc, {
       // unit only when `splice` clones it into the citing clause, which carries the mark with it.
       const unit = enclosingUnit(c) ?? root;
       unit.setAttribute(RETENTION_ATTR, String((Number(unit.getAttribute(RETENTION_ATTR) ?? 0) || 0) + 1));
+      // …and the RETAINED CONTAINER itself, which is what makes R75's provenance test possible: a
+      // correction may only rewrite text the base view retained, and "retained" is a property of an
+      // element, not of a file.
+      c.setAttribute(RETAINED_ATTR, '1');
       retained?.push({
         file: sourceFile,
         tag: c.nodeName,

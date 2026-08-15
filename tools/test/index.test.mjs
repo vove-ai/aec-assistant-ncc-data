@@ -285,6 +285,7 @@ const RETENTION = {
     find: 'for individual sub-circuit for individual sub-circuit',
     replace: 'for individual sub-circuit',
     url: 'https://ncc.abcb.gov.au/editions/ncc-2022/adopted/volume-one/j-energy-efficiency/part-j9',
+    files: ['2022/volume-one/j9d4-facilities-for-electric-vehicle-charging-equipment.md'],
   }],
 };
 
@@ -307,8 +308,21 @@ test('the edition index names every file whose text the base view retained, by C
   assert.match(idx, /WORDING/);
   assert.match(idx, /`BASE-VIEW RETENTION:`/);
   assert.match(idx, /THE REST ARE UNAUDITED/);
-  assert.match(idx, /"for individual sub-circuit for individual sub-circuit" corrected to "for individual sub-circuit"/);
+  assert.match(idx, /^ {2}volume-one\/j9d4-facilities-for-electric-vehicle-charging-equipment\.md: "for individual sub-circuit for individual sub-circuit" corrected to "for individual sub-circuit"$/m,
+    'the correction names the file a consumer can open, not the source XML basename');
+  assert.doesNotMatch(idx, /J9D4-facilities\.xml/, 'the source basename is not something the reader has');
   assert.match(idx, /^ {4}https:\/\/ncc\.abcb\.gov\.au\//m);
+});
+
+test('a correction in a source file this edition does not publish is still disclosed', () => {
+  // `files` is empty when the correction fired in a file the map never emits — the WA-only clause
+  // whose own <sptc> is a 2025 insertion is exactly that shape. Naming the source is worse than a
+  // corpus path and better than silence: the one thing this block may not do is drop a disclosure.
+  const idx = buildIndexes(new Map([['2022', [A5G7_2022]]]), {
+    tree: TREE,
+    retentions: new Map([['2022', { ...RETENTION, corrections: [{ ...RETENTION.corrections[0], files: [] }] }]]),
+  }).find(o => o.relPath === '2022/INDEX.md').content;
+  assert.match(idx, /^ {2}J9D4-facilities\.xml \(no file of this edition publishes it\): "for individual/m);
 });
 
 test('an edition with no retentions carries no retention boilerplate, and 2025 has none', () => {

@@ -53,7 +53,7 @@ import { fileURLToPath } from 'node:url';
 import { DOCUMENTS_2025, readDocument2025 } from './read-2025.mjs';
 import {
   BASE_VIEW_NOTE, BASE_VIEW_NOTE_TOKEN, DOCUMENTS_2022, OMISSION_REASONS,
-  baseViewRetentionCount, readPackage2022,
+  baseViewCorrections, baseViewRetentionCount, readPackage2022,
 } from './read-2022.mjs';
 import { normalizeUnit, figureUrlPrefix } from './normalize.mjs';
 import { emitUnit, unitRelPath } from './emit.mjs';
@@ -901,6 +901,7 @@ function buildEdition(editionKey, opts) {
   // and the edition index maps FILES.
   const baseViewFiles = new Map();
   const retainedTextCorrections = new Map();
+  const correctionFiles = new Map();      // correction key -> the corpus paths it reached
   const omittedClauses = [];
   const recoveredClauses = [];
   const supersededNullClauses = [];
@@ -997,6 +998,13 @@ function buildEdition(editionKey, opts) {
       const emitOpts = { citationPrefix: doc.citationPrefix, webUrl, bodyNote: retentions ? BASE_VIEW_NOTE : null };
       const { relPath, content } = emitUnit(unit, normalized, emitOpts);
       if (retentions) baseViewFiles.set(relPath, Math.max(baseViewFiles.get(relPath) ?? 0, retentions));
+      // …and which CORPUS FILE each R75 correction reached, for the same reason the list above is
+      // paths: the index states what a consumer can open, and they do not have the source XML.
+      for (const c of baseViewCorrections(unit.node)) {
+        const key = `${c.file}|${c.find}`;
+        if (!correctionFiles.has(key)) correctionFiles.set(key, new Set());
+        correctionFiles.get(key).add(relPath);
+      }
       // `docLabel` and `figurePrefix` are carried for the glossary fold alone: it names the
       // documents behind each variant in prose, and it has to recognise this document's own figure
       // CDN prefix to tell our per-volume artefact from text the Code publishes differently.
@@ -1174,7 +1182,13 @@ function buildEdition(editionKey, opts) {
     // disk (a withheld glossary is the case that makes the difference).
     baseViewFiles: [...baseViewFiles.keys()].filter(p => glossaryGuard.write.has(p)).sort(byCodepoint)
       .map(relPath => ({ relPath, count: baseViewFiles.get(relPath) })),
-    retainedTextCorrections: [...retainedTextCorrections.values()],
+    // Each correction carries the corpus files it reached, so the index can name a path a consumer
+    // can open. `files` may legitimately be empty — a correction can fire in a source file this
+    // publication never emits — and the index says so rather than dropping the disclosure.
+    retainedTextCorrections: [...retainedTextCorrections.values()].map(c => ({
+      ...c,
+      files: [...(correctionFiles.get(`${c.file}|${c.find}`) ?? [])].filter(p => glossaryGuard.write.has(p)).sort(byCodepoint),
+    })),
     omittedClauses,
     recoveredClauses,
     supersededNullClauses,

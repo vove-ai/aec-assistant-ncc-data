@@ -288,26 +288,54 @@ test('R75: a correction rewrites the retained text once the base view is materia
   assert.deepEqual([...fired], [`${e.file}|${e.find}`], 'the firing is recorded, so a stale entry can be reported');
 });
 
+/** The real shape: text inside a container the 2025 draft marked as inserted, which the base view
+ *  RETAINS because the text under it is untracked. Anything R75 may touch looks like this. */
+const retainedText = t => parse(`<clause ${XT} id="_x"><sptc>J9D4</sptc><title>T</title>`
+  + '<ol xt:type="insert" xt:dateTime="2024-04-12T10:26:47">'
+  + `<li xt:type="insert" xt:dateTime="2024-04-12T10:26:47">${t}</li></ol></clause>`);
+
 test('R75: a correction that no longer matches exactly once FAILS the build', () => {
   // A correction is a measurement of the source. If the source stops saying what it was written
   // against — or starts saying it twice — the evidence has gone stale, and applying it anyway
-  // would rewrite published Code on a guess.
+  // would rewrite published Code on a guess. Both fixtures are RETAINED text, so what is being
+  // exercised is the count and nothing else.
   const e = RETAINED_TEXT_CORRECTIONS[0];
-  const withText = t => parse(`<clause ${XT} id="_x"><sptc>J9D4</sptc><title>T</title><p>${t}</p></clause>`);
   assert.throws(
-    () => applyBaseView(withText('nothing like it here'), { sourceFile: e.file }),
+    () => applyBaseView(retainedText('nothing like it here'), { sourceFile: e.file }),
     /matched 0 times/,
     'a correction that matches nothing is a ruling that has silently gone stale',
   );
   assert.throws(
-    () => applyBaseView(withText(`${e.find} and again ${e.find}`), { sourceFile: e.file }),
+    () => applyBaseView(retainedText(`${e.find} and again ${e.find}`), { sourceFile: e.file }),
     /matched 2 times/,
     'a second occurrence is a different site, and it was never measured',
   );
   // A file the entry does not name is untouched, whatever it contains.
-  const other = withText(e.find);
+  const other = retainedText(e.find);
   applyBaseView(other, { sourceFile: 'some-other-clause.xml' });
   assert.match(txt(other.documentElement), new RegExp(escapeRe(e.find)));
+});
+
+test('R75: a match OUTSIDE a retained container is refused, not rewritten', () => {
+  // The mechanism is a general string edit; the justification is narrow. Text the base view did not
+  // retain has clean NCC 2022 provenance — it is what the source says the Code says — so rewriting
+  // it would be this repository editing published law on its own authority, and no amount of
+  // evidence in the table entry makes that acceptable. Without this test the class the doc comment
+  // states could quietly stop being true while every other guard stayed green.
+  const e = RETAINED_TEXT_CORRECTIONS[0];
+  const untracked = parse(`<clause ${XT} id="_x"><sptc>J9D4</sptc><title>T</title><p>${e.find}</p></clause>`);
+  assert.throws(
+    () => applyBaseView(untracked, { sourceFile: e.file }),
+    /matched text the base view did not retain, in <p>/,
+  );
+  assert.match(txt(untracked.documentElement), new RegExp(escapeRe(e.find)),
+    'and it is refused BEFORE the rewrite — the published wording is left exactly as the source has it');
+
+  // The retained arm of the same fixture still applies, so the refusal is about provenance and not
+  // about the text having moved.
+  const retained = retainedText(e.find);
+  applyBaseView(retained, { sourceFile: e.file });
+  assert.equal(txt(retained.documentElement.getElementsByTagName('li')[0]), e.replace);
 });
 
 const escapeRe = s => String(s).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');

@@ -65,7 +65,7 @@ Of those sites, 1 has been found by inspection to diverge from the published Cod
 here, against the page named. THE REST ARE UNAUDITED — nobody has read them word by word against
 ncc.abcb.gov.au — so this list is a record of what was found, not a clean bill of health for the
 others.
-  J9D4-facilities-for-electric-vehicle-charging-equipment.xml: "per outgoing circuit for individual sub-circuit for individual sub-circuit electricity metering" corrected to "per outgoing circuit for individual sub-circuit electricity metering"
+  volume-one/j9d4-facilities-for-electric-vehicle-charging-equipment.md: "per outgoing circuit for individual sub-circuit for individual sub-circuit electricity metering" corrected to "per outgoing circuit for individual sub-circuit electricity metering"
     https://ncc.abcb.gov.au/editions/ncc-2022/adopted/volume-one/j-energy-efficiency/part-j9-energy-monitoring-and-site-distributed-energy-resources
 
 Six cross-references in the NCC 2022 base text name the NCC 2025 designation of their target.

@@ -241,7 +241,7 @@ function knownGaps(edition, omitted, retention = null) {
  *
  * @param {?{token: string, sites: number, sourceFiles: number,
  *           files: Array<{relPath: string, count: number}>,
- *           corrections: Array<{file, find, replace, url}>}} r
+ *           corrections: Array<{file, find, replace, url, files?: string[]}>}} r
  */
 function baseViewRetentionSection(edition, r) {
   if (!r || !r.files?.length) return [];
@@ -277,7 +277,15 @@ function baseViewRetentionSection(edition, r) {
       + 'ARE UNAUDITED — nobody has read them word by word against ncc.abcb.gov.au — so this list is a '
       + 'record of what was found, not a clean bill of health for the others.'));
     for (const c of r.corrections) {
-      out.push(`  ${c.file}: "${c.find}" corrected to "${c.replace}"`, `    ${c.url}`);
+      // The CORPUS path, on the same reasoning as the list above: a consumer can open
+      // `volume-one/j9d4-….md`, and `J9D4-….xml` is not in this repository. A correction that
+      // reached no emitted file (it can fire in a source file this publication does not publish)
+      // is still disclosed, and says which source it was in — silence would be worse than a
+      // filename the reader cannot open.
+      const where = (c.files ?? []).length
+        ? (c.files ?? []).map(inner).join(', ')
+        : `${c.file} (no file of this edition publishes it)`;
+      out.push(`  ${where}: "${c.find}" corrected to "${c.replace}"`, `    ${c.url}`);
     }
   }
   return out;
