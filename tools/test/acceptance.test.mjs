@@ -261,6 +261,19 @@ function tableRefException(edition, file, key) {
   return TABLE_REF_EXCEPTIONS.find(e => e.edition === edition && e.file === rel && e.key === key) ?? null;
 }
 
+/**
+ * Every place the documentation states, by hand, how many corpus files carry the base-view caveat.
+ *
+ * #9 checks each against the number `corpus/2022/INDEX.md` actually lists. These are prose, not
+ * generated output, so nothing else can keep them true — and a stale hand-written assertion in
+ * AGENTS.md is precisely the defect the fix wave that added this had to remove.
+ */
+const RETENTION_COUNT_CLAIMS = [
+  { file: 'AGENTS.md', what: 'the section heading sentence', pattern: /In (\d+) files of `corpus\/2022\/`/ },
+  { file: 'AGENTS.md', what: 'the grep recipe', pattern: /corpus\/2022\/` lists all (\d+)\b/ },
+  { file: 'docs/content-model-2022.md', what: 'the §1.1 note', pattern: /note under its H1 \((\d+) files\)/ },
+];
+
 if (!editions.length) {
   test('acceptance suite is idle — no corpus/ built yet', (t) => {
     t.skip('corpus/2022 and corpus/2025 are both absent; run `npm run build` first');
@@ -635,6 +648,19 @@ for (const ed of editions) {
         + 'files and the base view retained 126 sites in 27 of them when this was measured, so an empty '
         + 'list means the index block, or the measurement behind it, has stopped being produced.');
       assert.ok(carrying.length > 0, `corpus/${ed} carries the caveat in no file at all`);
+      // The prose that states HOW MANY files carry it is written by hand beside a number the build
+      // computes, which is the defect this whole wave exists to fix, one order smaller: AGENTS.md
+      // asserted something about J5D2 that stopped being true and nothing was watching. So each
+      // claim is tied to `listed.length` here, and a claim whose SENTENCE has been reworded fails
+      // too — a guard that silently stops matching is the same failure wearing a different hat.
+      for (const { file, pattern, what } of RETENTION_COUNT_CLAIMS) {
+        const m = pattern.exec(read(file));
+        assert.ok(m, `${file}: "${what}" no longer matches ${pattern}. The sentence was rewritten, so the `
+          + 'number in it is no longer checked against the corpus — restate it or fix the pattern.');
+        assert.equal(Number(m[1]), listed.length,
+          `${file}: says ${m[1]} files carry "${TOKEN}"; corpus/${ed}/INDEX.md lists ${listed.length}. `
+          + 'A hand-written count beside a generated one is exactly how the last false claim in this file survived.');
+      }
     } else {
       assert.deepEqual(carrying, [], `corpus/${ed}: this edition has no base view, so nothing in it may claim one`);
     }
