@@ -18,6 +18,8 @@ defined_terms:
 
 # J1V3 — Verification using a reference building
 
+BASE-VIEW RETENTION: part of the text below was kept from a container the NCC 2025 draft marked as new, and the source records only that the container is new — never where its text sat before. Two things follow, and the source cannot settle either: the SUB-NUMBERING here is the draft's rather than the Code's, so a letter may restart, be missing, or sit at a different level than the published clause prints it; and the WORDING is the draft author's re-typing of the NCC 2022 text, which is not guaranteed to match the published Code word for word. Which passages are affected is not recorded anywhere in the packages and has not been established, so treat nothing here as verified: quote the words and the clause rather than a sub-paragraph letter, and check anything you rely on against the published clause at `web_url`.
+
 **(1)** For a Class 3, 5, 6, 7, 8 or 9 building or common area of a Class 2 building, compliance with J1P1 is verified when—
 
 (a) it is determined that the annual greenhouse gas emissions of the proposed building are not more than the annual greenhouse gas emissions of a reference building when—

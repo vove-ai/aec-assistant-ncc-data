@@ -32,6 +32,8 @@ defined_terms:
 
 # A5G3 — Evidence of suitability ─ Volumes One and Two (BCA)
 
+BASE-VIEW RETENTION: part of the text below was kept from a container the NCC 2025 draft marked as new, and the source records only that the container is new — never where its text sat before. Two things follow, and the source cannot settle either: the SUB-NUMBERING here is the draft's rather than the Code's, so a letter may restart, be missing, or sit at a different level than the published clause prints it; and the WORDING is the draft author's re-typing of the NCC 2022 text, which is not guaranteed to match the published Code word for word. Which passages are affected is not recorded anywhere in the packages and has not been established, so treat nothing here as verified: quote the words and the clause rather than a sub-paragraph letter, and check anything you rely on against the published clause at `web_url`.
+
 **(1)** Subject to A5G5, A5G6, A5G7 and A5G9, evidence to support that the use of a material, product, form of construction or design meets a Performance Requirement or a Deemed-to-Satisfy Provision may be in the form of any one, or any combination of the following:
 
 (a) A current CodeMark Australia or CodeMark Certificate of Conformity.

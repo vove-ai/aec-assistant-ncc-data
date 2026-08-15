@@ -268,3 +268,62 @@ test('omissions must be a Map — a plain object has no guaranteed key order', (
   assert.throws(() => buildIndexes(new Map([['2025', [A5G7]]]), { tree: TREE, omissions: {} }),
     /omissions must be a Map/);
 });
+
+/* -- R76: where the base-view disclosure chain terminates --------------------- */
+
+const RETENTION = {
+  token: 'BASE-VIEW RETENTION:',
+  sites: 126,
+  sourceFiles: 27,
+  files: [
+    { relPath: '2022/volume-one/j5d2-application-of-part.md', count: 7 },
+    { relPath: '2022/volume-one/j6d4-mechanical-ventilation-system-control.md', count: 26 },
+    { relPath: '2022/glossary/house-energy-rating-software.md', count: 1 },
+  ],
+  corrections: [{
+    file: 'J9D4-facilities.xml',
+    find: 'for individual sub-circuit for individual sub-circuit',
+    replace: 'for individual sub-circuit',
+    url: 'https://ncc.abcb.gov.au/editions/ncc-2022/adopted/volume-one/j-energy-efficiency/part-j9',
+  }],
+};
+
+test('the edition index names every file whose text the base view retained, by CORPUS path', () => {
+  // The chain used to end in the build report, which is stdout and ships nowhere: an agent that
+  // greps the corpus, gets a hit and quotes it never saw a word of it. So the index states it, and
+  // states it as paths a consumer can open — never as source XML basenames, which are not here.
+  const idx = buildIndexes(new Map([['2022', [A5G7_2022]]]), {
+    tree: TREE, retentions: new Map([['2022', RETENTION]]),
+  }).find(o => o.relPath === '2022/INDEX.md').content;
+
+  assert.match(idx, /^ {2}volume-one\/j5d2-application-of-part\.md — 7 retention sites$/m);
+  assert.match(idx, /^ {2}glossary\/house-energy-rating-software\.md — 1 retention site$/m, 'singular, at one');
+  assert.match(idx, /126 distinct retention sites across 27 source file/);
+  assert.doesNotMatch(idx, /\.xml — \d+ retention/, 'a consumer has corpus paths, not the source packages');
+
+  // Both consequences, the token to grep, and the correction — with the rest stated as UNAUDITED,
+  // because one divergence found by inspection is not a clean bill of health for 125 others.
+  assert.match(idx, /SUB-NUMBERING/);
+  assert.match(idx, /WORDING/);
+  assert.match(idx, /`BASE-VIEW RETENTION:`/);
+  assert.match(idx, /THE REST ARE UNAUDITED/);
+  assert.match(idx, /"for individual sub-circuit for individual sub-circuit" corrected to "for individual sub-circuit"/);
+  assert.match(idx, /^ {4}https:\/\/ncc\.abcb\.gov\.au\//m);
+});
+
+test('an edition with no retentions carries no retention boilerplate, and 2025 has none', () => {
+  const idx = buildIndexes(new Map([['2025', [A5G7]]]), { tree: TREE })
+    .find(o => o.relPath === '2025/INDEX.md').content;
+  assert.doesNotMatch(idx, /BASE-VIEW RETENTION/);
+  assert.doesNotMatch(idx, /retention site/);
+  // …and an edition whose payload arrives empty says nothing either, rather than "0 files".
+  const empty = buildIndexes(new Map([['2025', [A5G7]]]), {
+    tree: TREE, retentions: new Map([['2025', { ...RETENTION, sites: 0, sourceFiles: 0, files: [], corrections: [] }]]),
+  }).find(o => o.relPath === '2025/INDEX.md').content;
+  assert.doesNotMatch(empty, /BASE-VIEW RETENTION/);
+});
+
+test('retentions must be a Map — a plain object has no guaranteed key order', () => {
+  assert.throws(() => buildIndexes(new Map([['2025', [A5G7]]]), { tree: TREE, retentions: {} }),
+    /retentions must be a Map/);
+});

@@ -51,7 +51,10 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { DOCUMENTS_2025, readDocument2025 } from './read-2025.mjs';
-import { DOCUMENTS_2022, OMISSION_REASONS, readPackage2022 } from './read-2022.mjs';
+import {
+  BASE_VIEW_NOTE, BASE_VIEW_NOTE_TOKEN, DOCUMENTS_2022, OMISSION_REASONS,
+  baseViewRetentionCount, readPackage2022,
+} from './read-2022.mjs';
 import { normalizeUnit, figureUrlPrefix } from './normalize.mjs';
 import { emitUnit, unitRelPath } from './emit.mjs';
 import { buildLinkIndex, resolveWebUrl } from './weblinks.mjs';
@@ -523,8 +526,18 @@ function foldGlossary(relPath, perDocument) {
     documents: classes.map(c => c.members.map(m => m.docKey)),
   };
 
+  // R76 — a caveat any contributing document raised survives the fold, rather than being decided
+  // by whichever document happens to be canonical. The fold's classes are computed on the BODY, so
+  // two copies that differ only in whether they carry a retention collapse into one file: taking
+  // the canonical's note alone would silently drop a disclosure the corpus had already made.
+  // Measured today: the one affected entry carries the same two retentions in all four packages,
+  // so this changes no byte — it is the shape the next divergence would arrive in.
+  const bodyNote = perDocument.map(r => r.emitOpts?.bodyNote).find(Boolean) ?? null;
   if (classes.length === 1) {
-    return { content: emitUnit(canonical.unit, canonical.normalized, { ...canonical.emitOpts, sources }).content, census };
+    return {
+      content: emitUnit(canonical.unit, canonical.normalized, { ...canonical.emitOpts, sources, bodyNote }).content,
+      census,
+    };
   }
   // Each class is represented by its own first document, so the heading and the text under it come
   // from the same place. Flat `## ` headings, deliberately: an entry that is BOTH multi-sense and
@@ -541,7 +554,8 @@ function foldGlossary(relPath, perDocument) {
     normalized: { ...c.members[0].normalized, bodyMd: rewriteFigureCdn(c.members[0], canonical.figurePrefix) },
   }));
   return {
-    content: mergedRecord(canonical, parts, classes.map(c => `As published in ${listDocuments(c.members)}`), { sources }).content,
+    content: mergedRecord(canonical, parts, classes.map(c => `As published in ${listDocuments(c.members)}`),
+      { sources, bodyNote }).content,
     census,
   };
 }
@@ -565,7 +579,12 @@ function mergedRecord(canonical, parts, headings, emitExtra = {}) {
   const definedTerms = [];
   for (const p of parts) for (const t of p.normalized.definedTerms ?? []) if (!definedTerms.includes(t)) definedTerms.push(t);
   const normalized = { ...canonical.normalized, bodyMd, definedTerms };
-  const emitOpts = { ...canonical.emitOpts, ...emitExtra };
+  // R76: a merged file states the caveat if ANY of the parts it stacks raised one — the note is
+  // about text that is now in this file, and the canonical part is not necessarily the part that
+  // carries it. `mergeSenses` is the case with no `emitExtra` to state it for us.
+  const bodyNote = emitExtra.bodyNote ?? parts.map(p => p.emitOpts?.bodyNote).find(Boolean)
+    ?? canonical.emitOpts?.bodyNote ?? null;
+  const emitOpts = { ...canonical.emitOpts, ...emitExtra, bodyNote };
   return { ...canonical, normalized, emitOpts, content: emitUnit(canonical.unit, normalized, emitOpts).content };
 }
 
@@ -742,13 +761,38 @@ export function withholdPartialGlossary({ selected, all, write, ownedDirs, gloss
 export function withholdPartialIndexes(built) {
   const units = new Map();
   const omissions = new Map();
+  const retentions = new Map();
   const withheld = [];
   for (const b of built) {
     if (!b.wholeEdition) { withheld.push(`${b.editionKey}/INDEX.md`); continue; }
     units.set(b.editionKey, b.indexEntries ?? []);
     omissions.set(b.editionKey, b.omittedClauses ?? []);
+    retentions.set(b.editionKey, baseViewDisclosure(b));
   }
-  return { units, omissions, withheld: withheld.sort(byCodepoint) };
+  return { units, omissions, retentions, withheld: withheld.sort(byCodepoint) };
+}
+
+/**
+ * R76 — what `{edition}/INDEX.md` says about the base-view retentions, as data.
+ *
+ * The site and source-file totals are counted the way the report's BASE-VIEW RETENTIONS block
+ * counts them — DISTINCT `file|tag|text`, because these packages ship the same source file in up
+ * to four zips and pass 1 reads every one of them, so an occurrence count is four times a fact
+ * about one file. The per-FILE counts beside each corpus path are a different projection of the
+ * same evidence and are deliberately not required to sum to the total: they count the sites inside
+ * one emitted unit, where the four-zip duplication has already collapsed and a wrapper spliced
+ * into a citing clause has already been counted in.
+ */
+function baseViewDisclosure(built) {
+  const sites = new Set((built.baseViewRetentions ?? []).map(r => `${r.file}|${r.tag}|${r.text}`));
+  const sourceFiles = new Set((built.baseViewRetentions ?? []).map(r => r.file));
+  return {
+    token: BASE_VIEW_NOTE_TOKEN,
+    sites: sites.size,
+    sourceFiles: sourceFiles.size,
+    files: built.baseViewFiles ?? [],
+    corrections: built.retainedTextCorrections ?? [],
+  };
 }
 
 /**
@@ -852,6 +896,11 @@ function buildEdition(editionKey, opts) {
   const permittedNullClauses = [];
   const droppedCitations = [];
   const baseViewRetentions = [];
+  // R76 — corpus path -> how many retention sites that file's own unit holds. The key is the path
+  // rather than the record, because the glossary fold writes one file from four documents' units
+  // and the edition index maps FILES.
+  const baseViewFiles = new Map();
+  const retainedTextCorrections = new Map();
   const omittedClauses = [];
   const recoveredClauses = [];
   const supersededNullClauses = [];
@@ -880,6 +929,9 @@ function buildEdition(editionKey, opts) {
     for (const d of diagnostics.droppedCitations ?? []) droppedCitations.push({ doc: doc.key, ...d });
     for (const o of diagnostics.omittedClauses ?? []) omittedClauses.push({ doc: doc.key, ...o });
     for (const r of diagnostics.baseViewRetentions ?? []) baseViewRetentions.push({ doc: doc.key, ...r });
+    // Keyed, because the same source file ships in up to four packages and each read fires the
+    // correction again: the index states the RULING once, not once per zip.
+    for (const c of diagnostics.retainedTextCorrections ?? []) retainedTextCorrections.set(`${c.file}|${c.find}`, c);
     for (const u of diagnostics.unfiredRulings ?? []) unfiredRulings.push(u);
     for (const r of diagnostics.recoveredClauses ?? []) recoveredClauses.push({ doc: doc.key, ...r });
     for (const r of diagnostics.renumbered ?? []) renumbered.push({ doc: doc.key, ...r });
@@ -926,8 +978,25 @@ function buildEdition(editionKey, opts) {
         else (unit.kind === 'clause' ? unresolvedClauses : unresolvedOther).push({ doc: doc.key, unit });
       }
 
-      const emitOpts = { citationPrefix: doc.citationPrefix, webUrl };
+      // R76 — the disclosure goes in the FILE, because the build report is stdout and ships
+      // nowhere: an agent that greps the corpus, gets a hit and quotes it never sees a word of it.
+      // Read off the mark applyBaseView left on the unit's own node, so a unit is warned about
+      // exactly what it contains — `FlattenedFile.xml` is one source file holding hundreds of
+      // units, and a file-level attribution there would caveat every one of them.
+      //
+      // The 2025 zero is ASSERTED here rather than assumed. Nothing in read-2025.mjs sets the mark
+      // (that edition's source is single-state and has no base view), so this can only fire if an
+      // edition starts producing retentions without anyone deciding what its note should say.
+      const retentions = baseViewRetentionCount(unit.node);
+      if (retentions && editionKey !== '2022') {
+        throw new Error(`build: a unit of edition ${editionKey} carries ${retentions} base-view retention(s) `
+          + `(${unit.kind} ${unit.id ?? unit.term ?? unit.title ?? '(untitled)'}). Only NCC 2022 is read from `
+          + 'dual-state editorial packages, so this edition has no base view and should have none. Establish '
+          + 'what its retentions mean, and what the in-file note must say, before it publishes them.');
+      }
+      const emitOpts = { citationPrefix: doc.citationPrefix, webUrl, bodyNote: retentions ? BASE_VIEW_NOTE : null };
       const { relPath, content } = emitUnit(unit, normalized, emitOpts);
+      if (retentions) baseViewFiles.set(relPath, Math.max(baseViewFiles.get(relPath) ?? 0, retentions));
       // `docLabel` and `figurePrefix` are carried for the glossary fold alone: it names the
       // documents behind each variant in prose, and it has to recognise this document's own figure
       // CDN prefix to tell our per-volume artefact from text the Code publishes differently.
@@ -1099,6 +1168,13 @@ function buildEdition(editionKey, opts) {
     permittedNullClauses,
     droppedCitations,
     baseViewRetentions,
+    // R76 — what the edition index discloses: the FILES a reader can open, never the source XML
+    // basenames, which are not in this repository and are not something a consumer has. Restricted
+    // to the paths this run is actually writing, so the index can never list a file that is not on
+    // disk (a withheld glossary is the case that makes the difference).
+    baseViewFiles: [...baseViewFiles.keys()].filter(p => glossaryGuard.write.has(p)).sort(byCodepoint)
+      .map(relPath => ({ relPath, count: baseViewFiles.get(relPath) })),
+    retainedTextCorrections: [...retainedTextCorrections.values()],
     omittedClauses,
     recoveredClauses,
     supersededNullClauses,
@@ -1388,11 +1464,19 @@ function baseViewRetentionsBlock(built) {
     '  its children are judged on their own marks, so the 2025-only parts inside it are still dropped.',
     '  Where the draft moved that text into a container NCC 2022 did not have, the SUB-NUMBERING the',
     '  corpus prints is the draft\'s: the source records that a container is new, never where its text',
-    '  sat before, and inventing a letter would be a guess published as law. The words are the Code\'s;',
-    '  a sub-paragraph letter in one of these clauses is not citable. See corpus/2022/INDEX.md.');
+    '  sat before, and inventing a letter would be a guess published as law. The WORDING is the draft',
+    '  author\'s re-typing of it, so it can diverge from the published Code too — one such divergence',
+    '  has been found by inspection and is corrected under R75; the rest of these sites are UNAUDITED.',
+    '  Every affected FILE now says so in its own body (R76), because this report ships nowhere: see',
+    `  the ${BASE_VIEW_NOTE_TOKEN} token and the list in corpus/2022/INDEX.md.`);
   for (const f of [...byFile.keys()].sort(byCodepoint)) {
     const one = list.find(r => r.file === f);
     lines.push(`  ${padL(byFile.get(f), 3)}  ${f}`, `       ${one.text.length > 96 ? `${one.text.slice(0, 96)}…` : one.text}`);
+  }
+  const files = built.baseViewFiles ?? [];
+  lines.push(`  in the corpus: ${files.length} file(s) carry the ${BASE_VIEW_NOTE_TOKEN} note`);
+  for (const c of built.retainedTextCorrections ?? []) {
+    lines.push(`  R75 correction  ${c.file}`, `       "${c.find}"`, `    -> "${c.replace}"`);
   }
   return lines.join('\n');
 }
@@ -1698,7 +1782,9 @@ export async function main(argv) {
   const reports = built.map((b, i) => report(b, applied[i], opts));
   // Indexes describe the whole corpus, so they are written only when the whole corpus is.
   if (!ioFailure) {
-    for (const { relPath, content } of buildIndexes(indexes.units, { tree: corpusTree(), omissions: indexes.omissions })) {
+    for (const { relPath, content } of buildIndexes(indexes.units, {
+      tree: corpusTree(), omissions: indexes.omissions, retentions: indexes.retentions,
+    })) {
       const file = toFsPath(relPath);
       fs.mkdirSync(path.dirname(file), { recursive: true });
       fs.writeFileSync(file, content);

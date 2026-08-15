@@ -488,6 +488,25 @@ test('a clause with an empty title still gets a usable H1', () => {
   assert.ok(!c.includes('J3D6 — \n'));
 });
 
+test('a body note sits between the H1 and the text it qualifies, and never in the frontmatter', () => {
+  // R76. The reader must meet the caveat BEFORE the text it is about, and the frontmatter key
+  // order is a fixed contract — `grep -A6` is the citation — so a caveat has no business in it.
+  const c = emitUnit(clause({ id: 'A5G7', title: 'Resistance to fire' }), NORM,
+    { ...OPTS, bodyNote: 'CAVEAT: read this first.' }).content;
+  assert.ok(c.includes('---\n\n# A5G7 — Resistance to fire\n\nCAVEAT: read this first.\n\nBody.\n'), c);
+  const head = c.split('\n').slice(0, 7).join('\n');
+  assert.doesNotMatch(head, /CAVEAT/, 'the note must not intrude on the grep -A6 citation window');
+  assert.match(head, /citation: /);
+
+  // Absent by default, and the file is byte-identical to one emitted without the option at all.
+  assert.equal(emitUnit(clause(), NORM, { ...OPTS, bodyNote: null }).content, emitUnit(clause(), NORM, OPTS).content);
+});
+
+test('a body note that wraps across lines is refused — one paragraph per line is the grep contract', () => {
+  assert.throws(() => emitUnit(clause(), NORM, { ...OPTS, bodyNote: 'two\nlines' }), /ONE line/);
+  assert.throws(() => emitUnit(clause(), NORM, { ...OPTS, bodyNote: 'carriage\rreturn' }), /ONE line/);
+});
+
 test('a directory that would escape the corpus is refused', () => {
   const g = { edition: '2025', volume: 'volume-one', kind: 'glossary', term: 'Flight', title: 'Flight' };
   assert.throws(() => emitUnit(g, NORM, { ...OPTS, glossaryDir: '../../etc' }), /safe corpus-relative path/);

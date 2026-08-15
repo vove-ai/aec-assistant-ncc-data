@@ -155,14 +155,22 @@ function unsafePathSegment(value) {
  * @param {object} unit        a RawUnit
  * @param {{bodyMd: string, definedTerms: string[]}} normalized  normalizeUnit's output
  * @param {{citationPrefix: string, webUrl?: string|null, glossaryDir?: string,
- *          sources?: string[]}} opts
+ *          sources?: string[], bodyNote?: string|null}} opts
  *   `sources` names every document that publishes this glossary entry, in document order. It
  *   defaults to `[unit.volume]` — the document the unit was read from, which is the whole truth
  *   for a single-document run — and the build overrides it with the full set once it knows which
  *   documents shared the file. Ignored for every other kind.
+ *
+ *   `bodyNote` is a caveat about the text below it, printed between the H1 and the body so the
+ *   reader meets it BEFORE the text it qualifies. It goes in the BODY and never in the
+ *   frontmatter: the key order is a fixed contract (`grep -A6` is the citation), and a caveat is
+ *   not identity. One line, enforced — the corpus's other contract is one paragraph per line, and
+ *   a note that wrapped would break the phrase grep it is printed to protect.
  * @returns {{relPath: string, content: string}} corpus-relative path and the whole file
  */
-export function emitUnit(unit, normalized, { citationPrefix, webUrl = null, glossaryDir = 'glossary', sources = null } = {}) {
+export function emitUnit(unit, normalized, {
+  citationPrefix, webUrl = null, glossaryDir = 'glossary', sources = null, bodyNote = null,
+} = {}) {
   if (!citationPrefix) throw identityError('no citationPrefix — a file must never ship uncitable', unit);
   const relPath = unitRelPath(unit, { glossaryDir });
 
@@ -197,10 +205,16 @@ export function emitUnit(unit, normalized, { citationPrefix, webUrl = null, glos
   const terms = normalized?.definedTerms ?? [];
   if (terms.length) frontmatter.push('defined_terms:', ...terms.map(t => `  - ${yamlScalar(t)}`));
 
+  const note = bodyNote === null || bodyNote === undefined ? '' : String(bodyNote);
+  if (/\r|\n/.test(note)) {
+    throw identityError('a body note must be ONE line — the corpus promises one paragraph per line, and a '
+      + 'note broken across lines defeats the phrase grep it is printed to protect', unit);
+  }
   const heading = headingFor(unit);
   const blocks = [
     ['---', ...frontmatter, '---'].join('\n'),
     heading ? `# ${heading}` : '',
+    note,
     normalized?.bodyMd ?? '',
   ].filter(Boolean);
 

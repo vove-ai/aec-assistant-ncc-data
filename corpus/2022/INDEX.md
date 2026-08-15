@@ -22,6 +22,52 @@ build. Cite the live Code for these; nothing here stands in for them.
   volume-three E1D1 (and its TAS variation) — map-identity-unresolved
   volume-three E1O1 — map-identity-unresolved
 
+Read with care: 28 files below carry text the NCC 2025 draft moved into a container it marked as
+NEW — measured in the source as 126 distinct retention sites across 27 source file(s). The
+packages record that a container is new and never where its text sat before, so two things
+follow and the source settles neither. The SUB-NUMBERING in these files is the draft's, not
+necessarily the Code's: a letter can restart, be absent, or sit at a different level than the
+published clause prints it. And the WORDING is the draft author's re-typing of the NCC 2022
+text, which is not guaranteed to match the published Code word for word. Each file says so in
+its own body, on one line after the heading, beginning `BASE-VIEW RETENTION:` — grep that token
+to find them all. Quote the words and the clause rather than a sub-paragraph letter, and verify
+at `web_url`.
+  glossary/house-energy-rating-software.md — 2 retention sites
+  volume-one/a4g1-referenced-documents.md — 2 retention sites
+  volume-one/a5g3-evidence-of-suitability-volumes-one-and-two-bca.md — 5 retention sites
+  volume-one/b1d4-determination-of-structural-resistance-of-materials-and.md — 1 retention site
+  volume-one/e1d9-where-sprinklers-are-required-class-7a-building-other-than.md — 2 retention sites
+  volume-one/f1f1-protection-from-redirected-surface-water.md — 2 retention sites
+  volume-one/g1d2-swimming-pools.md — 3 retention sites
+  volume-one/j1p1-energy-use.md — 3 retention sites
+  volume-one/j1v1-nabers-energy.md — 7 retention sites
+  volume-one/j1v3-verification-using-a-reference-building.md — 2 retention sites
+  volume-one/j4d6-walls-and-glazing.md — 2 retention sites
+  volume-one/j5d2-application-of-part.md — 7 retention sites
+  volume-one/j6d10-space-heating.md — 2 retention sites
+  volume-one/j6d3-air-conditioning-system-control.md — 10 retention sites
+  volume-one/j6d4-mechanical-ventilation-system-control.md — 26 retention sites
+  volume-one/j6d5-fans-and-duct-systems.md — 9 retention sites
+  volume-one/j7d4-interior-artificial-lighting-and-power-control.md — 10 retention sites
+  volume-one/j8d3-swimming-pool-heating-and-pumping.md — 4 retention sites
+  volume-one/j8d4-spa-pool-heating-and-pumping.md — 4 retention sites
+  volume-one/j9d4-facilities-for-electric-vehicle-charging-equipment.md — 8 retention sites
+  volume-one/s5c19-type-a-fire-resisting-construction-carparks.md — 5 retention sites
+  volume-three/a4g1-referenced-documents.md — 2 retention sites
+  volume-three/a5g3-evidence-of-suitability-volumes-one-and-two-bca.md — 5 retention sites
+  volume-three/b5d2-drinking-water-service.md — 2 retention sites
+  volume-three/c2p7-damage.md — 4 retention sites
+  volume-two/a4g1-referenced-documents.md — 2 retention sites
+  volume-two/a5g3-evidence-of-suitability-volumes-one-and-two-bca.md — 5 retention sites
+  volume-two/h7d2-swimming-pools.md — 3 retention sites
+
+Of those sites, 1 has been found by inspection to diverge from the published Code and corrected
+here, against the page named. THE REST ARE UNAUDITED — nobody has read them word by word against
+ncc.abcb.gov.au — so this list is a record of what was found, not a clean bill of health for the
+others.
+  J9D4-facilities-for-electric-vehicle-charging-equipment.xml: "per outgoing circuit for individual sub-circuit for individual sub-circuit electricity metering" corrected to "per outgoing circuit for individual sub-circuit electricity metering"
+    https://ncc.abcb.gov.au/editions/ncc-2022/adopted/volume-one/j-energy-efficiency/part-j9-energy-monitoring-and-site-distributed-energy-resources
+
 Six cross-references in the NCC 2022 base text name the NCC 2025 designation of their target.
 They are untracked in the source, so they are reproduced as the Code prints them rather than
 rewritten. The 2022 form of each is given here.
