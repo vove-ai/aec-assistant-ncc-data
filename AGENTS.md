@@ -322,22 +322,34 @@ the ABCB source packages do not contain their text: `volume-one D3D31`; `volume-
 C1O1, C3D1, D1O1, E1D1 (and its TAS variation), E1O1`. They are omitted rather than stubbed, so
 they are simply absent. If you cannot find a 2022 clause, check that list, then cite the live Code.
 
-**In a handful of NCC 2022 clauses the sub-numbering is the 2025 draft's, not the Code's.** The
-source packages are dual-state editorial files, and where the 2025 draft RESTRUCTURED a clause —
-wrapped an existing requirement in a new list, promoted it to a subclause of its own, moved it
-between levels — the mark records that the container is new but never where its text sat before.
-The corpus keeps the text, because losing published Code is worse; it does not invent a letter for
-it, because that would be a guess published as law. So in those clauses a requirement may sit one
-level deeper than the Code prints it, or under no letter at all, and **`J5D2(1)(a)` as printed here
-is not necessarily `J5D2(1)(a)` as published**. Quote the words and the clause; verify a
-sub-paragraph letter at `web_url` before citing one. Affected clauses are named in the build
-report's BASE-VIEW RETENTIONS block. `J5D2` is the worst of them and the one to know by name: it
-prints `(a)` **twice** — the first is the stem the published Code sets in the paragraph
-("elements forming the envelope of a Class 2 to 9 building, other than—"), the second is the first
-of its exclusions — and it gives three of the four exclusions the published clause lists, the third
-without its opening words ("in a Class 3 or Class 5 to 9 building,") and the fourth ("parts of
-buildings that cannot be fully enclosed") not at all, because the source does not carry it. Read
-J5D2 at its `web_url` before answering on it.
+**In 28 files of `corpus/2022/` the sub-numbering AND the wording come from the 2025 draft, not
+from the Code.** The source packages are dual-state editorial files, and where the 2025 draft
+RESTRUCTURED a clause — wrapped an existing requirement in a new list, promoted it to a subclause
+of its own, moved it between levels — the mark records that the container is new but never where
+its text sat before. The corpus keeps the text, because losing published Code is worse; it does not
+invent a letter for it, because that would be a guess published as law. Two consequences follow,
+and the second is the more dangerous because nothing on the page shows it:
+
+- the **sub-numbering** can restart, be missing, or sit one level deeper than the Code prints it —
+  so **`J5D2(1)(a)` as printed here is not necessarily `J5D2(1)(a)` as published**;
+- the **wording** inside such a container is the draft author's re-typing of the NCC 2022 text, so
+  it can diverge from the published Code without a single mark to say so. One divergence has been
+  found by inspection and corrected (a phrase the source types twice in `J9D4`); **every other
+  retention site is UNAUDITED** — nobody has read it word by word against the published Code.
+
+Every affected file says so in its own body, on one line under the H1, beginning
+`BASE-VIEW RETENTION:`. `grep -rl "^BASE-VIEW RETENTION:" corpus/2022/` lists all 28 — drop the `^`
+and you also match `corpus/2022/INDEX.md`, which quotes the token — and the index names them with
+their retention counts and records the correction. Quote the words and the clause, never a
+sub-paragraph letter, and verify at `web_url`.
+
+`J5D2` is the one to know by name: it prints `(a)` **twice** — the first is the stem the published
+Code sets as paragraph text ("elements forming the envelope of a Class 2 to 9 building, other
+than—"), the second is the first of its exclusions. Its three exclusions are the national clause's
+three, complete and in the published wording; the four-paragraph version — the one with "in a Class
+3 or Class 5 to 9 building," and "parts of buildings that cannot be fully enclosed" — is the **NSW
+variation**, and it is published here as `j5d2-nsw-application-of-part.md`. Do not read one into
+the other.
 
 **Six cross-references print an NCC 2025 designation.** `F1D11`, `B1P7`, `B2P12`, `B3P8`, `B6D7`
 and `B7P5` appear in NCC 2022 text that the ABCB itself publishes that way — the source carries no

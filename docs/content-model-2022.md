@@ -164,7 +164,18 @@ They sit on exactly three elements (vol-one: `table-reference` 159, `clause` 148
 > paragraph, J5D2 wants both. So `read-2022.mjs` keeps the text and does not invent a letter for
 > it: in a restructured clause a requirement may render one level deeper than the Code prints it.
 > That is a stated limitation, not a silent one — the build prints every retention, and AGENTS.md
-> tells a reading agent that a sub-paragraph letter in those clauses is not citable.
+> tells a reading agent that a sub-paragraph letter in those clauses is not citable. It is now also
+> stated where the reader actually is, which a build report is not: every affected corpus file
+> carries a one-line `BASE-VIEW RETENTION:` note under its H1 (28 files), and `corpus/2022/INDEX.md`
+> lists them with their counts.
+>
+> **The sub-numbering is not the only consequence.** Where the draft's author RE-TYPED a
+> requirement into the new container instead of moving the marked-up original, what the base view
+> retains is a TRANSCRIPTION — so the wording can diverge from the published Code, with nothing in
+> the source to say that it has. One divergence has been found by inspection (`J9D4`, which types
+> "for individual sub-circuit" twice where the published clause prints it once) and is corrected
+> under R75 with the page it was read from. The other retention sites are UNAUDITED against
+> ncc.abcb.gov.au, and the in-file note says so in open terms rather than implying the set is known.
 >
 > **Two kinds of text are not evidence of anything**, and reading them as such publishes 2025
 > draft words as 2022 law:
