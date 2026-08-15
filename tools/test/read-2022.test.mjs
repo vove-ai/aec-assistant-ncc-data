@@ -14,10 +14,14 @@ import { DOMParser } from '@xmldom/xmldom';
 import {
   DOCUMENTS_2022,
   BODY_TAGS_2022,
+  BASE_VIEW_NOTE,
+  BASE_VIEW_NOTE_TOKEN,
   applyBaseView,
   baseViewKeeps,
+  baseViewRetentionCount,
   baseCycleText,
   NOT_BASE_CYCLE_TEXT,
+  RETAINED_TEXT_CORRECTIONS,
   readPackage2022,
   OMITTED_2022_CLAUSES,
   RECOVERED_2022_CLAUSES,
@@ -189,6 +193,138 @@ test('R73: NOT_BASE_CYCLE_TEXT is refused unless every entry carries checkable e
   // and the staleness assertion would then fail the build for a reason nobody could act on.
   const keys = NOT_BASE_CYCLE_TEXT.map(e => `${e.file}|${e.tag}|${e.text}`);
   assert.equal(new Set(keys).size, keys.length, 'two entries key the same site');
+});
+
+/* -- R73/R76: a retention belongs to a UNIT, not to a file -------------------- */
+
+const elementById = (doc, id) => {
+  for (const el of doc.documentElement.getElementsByTagName('*')) if (el.getAttribute('id') === id) return el;
+  return null;
+};
+
+test('a retention in the MAP is attributed to the one unit that encloses it, not to the file', () => {
+  // FlattenedFile.xml is the publication's SPINE: one file holding every page, glossary entry and
+  // Part in the volume. A file-level attribution there would caveat hundreds of units for a
+  // retention in one of them — which is why the record names the enclosing unit and the mark is
+  // set on that unit's own element.
+  const entry = (id, term, body) => `<abcb-glossentry id="${id}" outputclass="abcb-glossentry">`
+    + `<glossterm>${term}</glossterm><glossdef outputclass="glossdef">${body}</glossdef></abcb-glossentry>`;
+  const doc = parse(`<abcb-map ${XT} document-type="Glossary"><topicset section-num="Schedule 1" navtitle="Definitions">`
+    + entry('_g1', 'House energy rating software',
+      '<ol xt:type="insert" xt:dateTime="2024-04-09T09:00:34">'
+      + '<li xt:type="insert" xt:dateTime="2024-04-09T09:00:34">software accredited under the Scheme</li></ol>')
+    + entry('_g2', 'Another term', '<p>Untouched by the draft.</p>')
+    + '<page id="_p1"><title>Preface</title><p>Front matter.</p></page>'
+    + '</topicset></abcb-map>');
+  const retained = [];
+  applyBaseView(doc, { sourceFile: 'FlattenedFile.xml', retained });
+
+  assert.deepEqual(retained.map(r => [r.file, r.tag, r.unitTag, r.unitId]), [
+    ['FlattenedFile.xml', 'ol', 'abcb-glossentry', '_g1'],
+    ['FlattenedFile.xml', 'li', 'abcb-glossentry', '_g1'],
+  ], 'the record names the enclosing glossary entry, twice — the container and the item inside it');
+
+  assert.equal(baseViewRetentionCount(elementById(doc, '_g1')), 2);
+  assert.equal(baseViewRetentionCount(elementById(doc, '_g2')), 0, 'the sibling entry carries none');
+  assert.equal(baseViewRetentionCount(elementById(doc, '_p1')), 0, 'nor does the page beside it');
+  // The whole-file answer, which is what a file-level attribution would have given every unit.
+  assert.equal(baseViewRetentionCount(doc.documentElement), 0,
+    'the map root answers for no unit — a retention belongs to the unit that holds it, not to the spine');
+});
+
+test('a retention in a clause file is attributed to the clause, and a wrapper file to its root', () => {
+  const clauseDoc = parse(`<clause ${XT} id="_c1"><sptc>J5D2</sptc><title>Application of Part</title>`
+    + '<subclause outputclass="subclause"><num>1</num>'
+    + '<ol xt:type="insert" xt:dateTime="2024-04-09T09:00:34">'
+    + '<li xt:type="insert" xt:dateTime="2024-04-09T09:00:34">elements forming the envelope</li></ol>'
+    + '</subclause></clause>');
+  const retained = [];
+  applyBaseView(clauseDoc, { sourceFile: 'J5D2-application-of-part.xml', retained });
+  assert.deepEqual([...new Set(retained.map(r => `${r.unitTag}|${r.unitId}`))], ['clause|_c1'],
+    'a <subclause> is prose inside the unit, not a unit — the clause root answers');
+  assert.equal(baseViewRetentionCount(clauseDoc.documentElement), 2);
+
+  // A table wrapper is a FILE with no unit in it: its content becomes part of a unit only when
+  // `splice` clones it into the citing clause, so the mark goes on the root and is counted from
+  // the unit downwards once it is there.
+  const wrapper = parse(`<table-reference ${XT} id="_t1"><num>J9D4</num><title>Boards</title>`
+    + '<p xt:type="insert" xt:dateTime="2024-04-12T10:26:47">one additional distribution board</p></table-reference>');
+  const wrapperRetained = [];
+  applyBaseView(wrapper, { sourceFile: 'table-J9D4-boards.xml', retained: wrapperRetained });
+  assert.deepEqual(wrapperRetained.map(r => [r.unitTag, r.unitId]), [['table-reference', '_t1']]);
+  const host = parse('<clause id="_c2"><sptc>J9D4</sptc><title>Facilities</title></clause>');
+  host.documentElement.appendChild(host.importNode(wrapper.documentElement, true));
+  assert.equal(baseViewRetentionCount(host.documentElement), 1,
+    'the citing clause carries the wrapper\'s retention once the wrapper is spliced into it');
+});
+
+/* -- R75: the enumerated transcription divergences ---------------------------- */
+
+test('R75: RETAINED_TEXT_CORRECTIONS is refused unless every entry carries checkable evidence', () => {
+  for (const e of RETAINED_TEXT_CORRECTIONS) {
+    for (const k of ['file', 'find', 'replace', 'evidence', 'url']) {
+      assert.equal(typeof e[k], 'string', `${e.file}: ${k}`);
+      assert.ok(e[k].trim(), `${e.file}: ${k} is empty`);
+    }
+    assert.notEqual(e.find, e.replace, `${e.file}: a correction that changes nothing still asserts something`);
+    assert.ok(e.evidence.length >= 80,
+      `${e.file}: ${e.evidence.length} characters of evidence — rewriting published Code needs a measurement`);
+    assert.match(e.url, /^https:\/\/ncc\.abcb\.gov\.au\//, `${e.file}: the evidence must name the page it was read from`);
+  }
+  const keys = RETAINED_TEXT_CORRECTIONS.map(e => `${e.file}|${e.find}`);
+  assert.equal(new Set(keys).size, keys.length, 'two entries key the same site');
+});
+
+test('R75: a correction rewrites the retained text once the base view is materialised', () => {
+  const e = RETAINED_TEXT_CORRECTIONS[0];
+  const doc = parse(`<clause ${XT} id="_j9d4"><sptc>J9D4</sptc><title>Facilities</title>`
+    + '<ol xt:type="insert" xt:dateTime="2024-04-12T10:26:47">'
+    + `<li xt:type="insert" xt:dateTime="2024-04-12T10:26:47">contain space of at least 36 mm width of DIN rail ${e.find} to record electricity use; and</li>`
+    + '</ol></clause>');
+  const fired = new Set();
+  applyBaseView(doc, { sourceFile: `XMLs/${e.file}`, correctionsFired: fired });
+  assert.equal(txt(doc.documentElement.getElementsByTagName('li')[0]),
+    `contain space of at least 36 mm width of DIN rail ${e.replace} to record electricity use; and`);
+  assert.deepEqual([...fired], [`${e.file}|${e.find}`], 'the firing is recorded, so a stale entry can be reported');
+});
+
+test('R75: a correction that no longer matches exactly once FAILS the build', () => {
+  // A correction is a measurement of the source. If the source stops saying what it was written
+  // against — or starts saying it twice — the evidence has gone stale, and applying it anyway
+  // would rewrite published Code on a guess.
+  const e = RETAINED_TEXT_CORRECTIONS[0];
+  const withText = t => parse(`<clause ${XT} id="_x"><sptc>J9D4</sptc><title>T</title><p>${t}</p></clause>`);
+  assert.throws(
+    () => applyBaseView(withText('nothing like it here'), { sourceFile: e.file }),
+    /matched 0 times/,
+    'a correction that matches nothing is a ruling that has silently gone stale',
+  );
+  assert.throws(
+    () => applyBaseView(withText(`${e.find} and again ${e.find}`), { sourceFile: e.file }),
+    /matched 2 times/,
+    'a second occurrence is a different site, and it was never measured',
+  );
+  // A file the entry does not name is untouched, whatever it contains.
+  const other = withText(e.find);
+  applyBaseView(other, { sourceFile: 'some-other-clause.xml' });
+  assert.match(txt(other.documentElement), new RegExp(escapeRe(e.find)));
+});
+
+const escapeRe = s => String(s).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+
+test('R76: the in-file note is one greppable line that closes nothing', () => {
+  assert.ok(BASE_VIEW_NOTE.startsWith(BASE_VIEW_NOTE_TOKEN), 'the token leads, so one grep finds every affected file');
+  assert.doesNotMatch(BASE_VIEW_NOTE, /\r|\n/, 'one paragraph per line is the corpus\'s grep contract');
+  // Both consequences, because the visible one is not the boundary of the class: a wording
+  // divergence can sit in a clause whose lettering never restarts.
+  assert.match(BASE_VIEW_NOTE, /SUB-NUMBERING/);
+  assert.match(BASE_VIEW_NOTE, /WORDING/);
+  assert.match(BASE_VIEW_NOTE, /web_url/, 'the reader is sent to the published clause');
+  // OPEN in form. The set of divergences is not known, and a note that implied it was audited
+  // would be the fifth closed rule this repository has had to take back out.
+  assert.match(BASE_VIEW_NOTE, /has not been established/);
+  // And general: a named example would be read as the boundary of the class.
+  assert.doesNotMatch(BASE_VIEW_NOTE, /\b[A-Z]\d+[A-Z]\d+\b/, 'the note names no clause — specifics live in INDEX.md');
 });
 
 test('baseViewKeeps is exported and states the rule for one element', () => {

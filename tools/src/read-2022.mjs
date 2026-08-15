@@ -329,6 +329,68 @@ const rulingKey = e => `${e.file}|${e.tag}|${e.text}`;
  */
 const DRAFT_POINTER_ATTR = 'xt-base-view-draft-pointer';
 
+/**
+ * R73 — the UNIT a retention sits in, and how `applyBaseView` tells the rest of the pipeline.
+ *
+ * The retention record used to carry the source FILE alone, and that is too coarse to act on. One
+ * of the 27 files carrying retentions is `FlattenedFile.xml`, the publication's SPINE: a whole-file
+ * attribution there would tag every page, glossary entry and Part overview in the volume with a
+ * caveat that belongs to one element of it.
+ *
+ * `UNIT_ELEMENT_TAGS` is exactly the set of elements this reader hands `emit` as a unit's `node` —
+ * a clause file's root, a DELETE clause-variation, a glossary entry, a map `page`, a container
+ * whose own prose becomes its overview, a part-variation, and the `topicset` whose `@summary` is a
+ * Section overview. Every other element is walked THROUGH on the way up.
+ *
+ * The count rides on the DOM as an ATTRIBUTE, for the same reason `DRAFT_POINTER_ATTR` does: the
+ * unit is emitted from a DOM parsed in a LATER pass, so nothing held beside pass 1's tree survives
+ * to the point where the decision is needed. It never reaches the corpus — normalize.mjs renders
+ * text, and no attribute is written into markdown.
+ */
+const UNIT_ELEMENT_TAGS = new Set([
+  'clause',            // a clause file's root — what emitClauseFile hands over
+  'clause-variation',  // a DELETE jurisdiction variation is a unit in its own right
+  'abcb-glossentry',
+  'page',
+  'part', 'specification',   // a container's own prose becomes its overview unit
+  'part-variation',
+  'topicset',          // §11: @summary is the Section's published abstract, emitted as an overview
+]);
+
+const RETENTION_ATTR = 'xt-base-view-retention';
+
+/** The unit element enclosing this one, or null when the retention sits outside every unit. */
+function enclosingUnit(el) {
+  for (let p = el.parentNode; p && p.nodeType === 1; p = p.parentNode) {
+    if (UNIT_ELEMENT_TAGS.has(p.nodeName)) return p;
+  }
+  return null;
+}
+
+/**
+ * How many base-view retentions this unit's subtree holds — 0 for every unit that has none.
+ *
+ * Read off the mark `applyBaseView` left, and read from the unit node DOWNWARDS as well as on the
+ * node itself: a `<table-reference>`/`<image-reference>` wrapper is a FILE of its own, so a
+ * retention inside one is attributed to the wrapper root (no unit encloses it there) and only
+ * becomes part of a unit when `splice` clones it into the citing clause.
+ *
+ * Exported because build.mjs decides from it whether a file carries the in-body disclosure, and a
+ * second hand-rolled reader of the same attribute could disagree with this one.
+ */
+export function baseViewRetentionCount(node) {
+  if (!node || node.nodeType !== 1) return 0;
+  let n = Number(node.getAttribute?.(RETENTION_ATTR) ?? 0) || 0;
+  for (const el of node.getElementsByTagName?.('*') ?? []) {
+    // A nested unit answers for itself. Its retentions belong to ITS file, and this unit's body
+    // does not render it — BODY_TAGS_2022 skips `clause-variation` inside a clause — so counting
+    // them here would put a caveat on a file that carries none of the text it warns about.
+    if (UNIT_ELEMENT_TAGS.has(el.nodeName)) continue;
+    n += Number(el.getAttribute(RETENTION_ATTR) ?? 0) || 0;
+  }
+  return n;
+}
+
 // Refused at import, on the same terms as OMITTED_2022_CLAUSES: an exception whose evidence is a
 // shrug is indistinguishable from a bug, and a build is the wrong place to find that out.
 for (const e of NOT_BASE_CYCLE_TEXT) {
@@ -348,6 +410,151 @@ function notBaseCycle(file, tag, text) {
   if (!file) return null;
   const base = file.slice(file.lastIndexOf('/') + 1);
   return NOT_BASE_CYCLE_TEXT.find(e => e.file === base && e.tag === tag && e.text === text) ?? null;
+}
+
+/**
+ * R75 — the enumerated transcription divergences in retained text.
+ *
+ * THE CLASS. A retention keeps text the 2025 draft moved inside a container it marked as NEW. The
+ * mark says the container is new; it does not say where the text under it came from — and where
+ * the draft's author RE-TYPED an NCC 2022 requirement into that container rather than moving the
+ * marked-up original, what the base view retains is the author's transcription. A transcription
+ * can diverge from the published Code, and nothing in the source records that it has: the words
+ * carry no tracked change, so no transform can tell a faithful copy from a slip. The only way to
+ * find one is to read the retained text against the published clause.
+ *
+ * WHAT THIS TABLE IS, AND WHAT IT IS NOT. It holds the divergences FOUND BY INSPECTION — one, at
+ * the time of writing. Every other retention site in the corpus is UNAUDITED: no one has compared
+ * it word by word with ncc.abcb.gov.au. So this table is emphatically NOT a clean bill of health
+ * for the rest, and must never be read as one; the in-file note R76 puts on every affected unit
+ * says exactly that to the reader, in open terms, because the set of divergences is not known.
+ *
+ * THE DISCIPLINE, which is NOT_BASE_CYCLE_TEXT's. `file` is the source file's basename (these
+ * packages ship the same file in up to four zips, byte-identically, so the fact is a property of
+ * the FILE); `find` is matched against text nodes AFTER the base view is materialised, and must
+ * match EXACTLY ONCE in the file — a correction that matches nothing, or twice, means the source
+ * changed underneath it and FAILS THE BUILD rather than being quietly dropped; `evidence` states
+ * the published text it was checked against, in at least 80 characters; `url` is the page it was
+ * read from. `find` is matched WITHIN one text node — the base view leaves the retained run whole,
+ * and a correction that would have to span two nodes is a different problem, which this refuses
+ * loudly rather than half-applying.
+ */
+export const RETAINED_TEXT_CORRECTIONS = [
+  {
+    file: 'J9D4-facilities-for-electric-vehicle-charging-equipment.xml',
+    find: 'per outgoing circuit for individual sub-circuit for individual sub-circuit electricity metering',
+    replace: 'per outgoing circuit for individual sub-circuit electricity metering',
+    url: 'https://ncc.abcb.gov.au/editions/ncc-2022/adopted/volume-one/j-energy-efficiency/'
+      + 'part-j9-energy-monitoring-and-site-distributed-energy-resources',
+    evidence:
+      'The <li> is inside an <ol xt:type="insert"> the 2025 draft added and its text is bare, so the base '
+      + 'view retains it — and what it retains is the draft author\'s re-typing, with the phrase "for '
+      + 'individual sub-circuit" typed twice. The published national text, on '
+      + 'part-j9-energy-monitoring-and-site-distributed-energy-resources inside the container '
+      + 'id="_73065437-b0a4-4784-a4fa-fdfc648f7cc9" — which is character-for-character the <clause id> of '
+      + 'this source file — reads "…per outgoing circuit for individual sub-circuit electricity metering…", '
+      + 'the phrase appearing ONCE. There is no state-variation container for J9D4 on that page, so there '
+      + 'is no other candidate reading to confuse it with. (Read 2026-08-15 from the clause\'s own web_url.)',
+  },
+];
+
+const correctionKey = e => `${e.file}|${e.find}`;
+
+// Refused at import, on the same terms as the tables above: a correction to published Code with no
+// checkable measurement behind it is indistinguishable from a typo, and a build is the wrong place
+// to discover which one it is.
+for (const e of RETAINED_TEXT_CORRECTIONS) {
+  for (const k of ['file', 'find', 'replace', 'evidence', 'url']) {
+    if (typeof e[k] === 'string' && e[k].trim()) continue;
+    throw new Error(`read-2022: RETAINED_TEXT_CORRECTIONS entry ${JSON.stringify(e)} has no ${k} — a correction `
+      + 'must name the source file, the exact text it replaces and what it replaces it with, and state its evidence');
+  }
+  if (e.find === e.replace) {
+    throw new Error(`read-2022: RETAINED_TEXT_CORRECTIONS entry for ${e.file} replaces its text with itself — `
+      + 'a correction that changes nothing would still have to fire, and would assert something untrue');
+  }
+  if (e.evidence.length < 80) {
+    throw new Error(`read-2022: RETAINED_TEXT_CORRECTIONS entry for ${e.file} states ${e.evidence.length} characters `
+      + 'of evidence — rewriting text the corpus publishes as law needs a measurement a reader can check, not a label');
+  }
+}
+{
+  const keys = RETAINED_TEXT_CORRECTIONS.map(correctionKey);
+  if (new Set(keys).size !== keys.length) {
+    throw new Error('read-2022: two RETAINED_TEXT_CORRECTIONS entries key the same site — the second could never '
+      + 'fire on its own, and the staleness check would then fail every build for a reason nobody can act on');
+  }
+}
+
+/**
+ * Apply R75 to a materialised base view, in place. One text node at a time, and EXACTLY ONCE.
+ *
+ * Run after all three tracked-change mechanisms, so what it sees is what the corpus will print.
+ * A count other than 1 throws: 0 means the source no longer says what the ruling was written
+ * against, and 2 means the phrase is no longer the single site it was measured at — either way the
+ * evidence has gone stale, and a correction to published Code must not apply itself on a guess.
+ */
+function applyRetainedTextCorrections(doc, sourceFile, fired) {
+  if (!sourceFile) return;
+  const base = sourceFile.slice(sourceFile.lastIndexOf('/') + 1);
+  const entries = RETAINED_TEXT_CORRECTIONS.filter(e => e.file === base);
+  if (!entries.length) return;
+  const texts = [];
+  (function collect(node) {
+    for (let c = node.firstChild; c; c = c.nextSibling) {
+      if (c.nodeType === 3) texts.push(c);
+      else if (c.nodeType === 1) collect(c);
+    }
+  })(doc.documentElement);
+  for (const e of entries) {
+    let hits = 0;
+    for (const t of texts) {
+      const n = t.data.split(e.find).length - 1;
+      if (!n) continue;
+      hits += n;
+      t.data = t.data.split(e.find).join(e.replace);
+    }
+    if (hits !== 1) {
+      throw new Error(`read-2022: the RETAINED_TEXT_CORRECTIONS entry for ${e.file} matched ${hits} times in the `
+        + `base view of ${sourceFile}, not once. It corrects a transcription divergence measured against the `
+        + `published Code (${e.url}); a count of 0 means the source no longer carries the text the ruling was `
+        + 'written against, and more than 1 means it is no longer the single site it was measured at. '
+        + 'Re-establish what the source says before this build is trusted.');
+    }
+    fired?.add(correctionKey(e));
+  }
+}
+
+/**
+ * R76 — the in-file disclosure every unit carrying a base-view retention prints.
+ *
+ * ONE LINE, and it leads with a fixed token, because the corpus's contract with the agent reading
+ * it is one paragraph per line and one grep to find every affected file. It is placed straight
+ * after the H1 so the caveat is met BEFORE the text it qualifies.
+ *
+ * It is deliberately OPEN. The source does not record which passages were re-typed or where a
+ * letter came from, so the set of divergences is unknown — and this repository has been burned
+ * before by a closed rule asserted over open evidence. The note therefore says what is true of the
+ * class, names both consequences (the sub-numbering and the wording), and sends the reader to
+ * `web_url`; it names no clause, because a specific example read as a boundary is exactly the
+ * false closure it is written to avoid. The build report and corpus/2022/INDEX.md carry the
+ * specifics.
+ */
+export const BASE_VIEW_NOTE_TOKEN = 'BASE-VIEW RETENTION:';
+
+export const BASE_VIEW_NOTE = `${BASE_VIEW_NOTE_TOKEN} part of the text below was kept from a container the `
+  + 'NCC 2025 draft marked as new, and the source records only that the container is new — never where its '
+  + 'text sat before. Two things follow, and the source cannot settle either: the SUB-NUMBERING here is the '
+  + "draft's rather than the Code's, so a letter may restart, be missing, or sit at a different level than "
+  + "the published clause prints it; and the WORDING is the draft author's re-typing of the NCC 2022 text, "
+  + 'which is not guaranteed to match the published Code word for word. Which passages are affected is not '
+  + 'recorded anywhere in the packages and has not been established, so treat nothing here as verified: '
+  + 'quote the words and the clause rather than a sub-paragraph letter, and check anything you rely on '
+  + 'against the published clause at `web_url`.';
+
+if (/\n/.test(BASE_VIEW_NOTE)) {
+  throw new Error('read-2022: BASE_VIEW_NOTE spans more than one line — the corpus\'s grep contract is one '
+    + 'paragraph per line, and a wrapped note breaks the retrieval it exists to protect');
 }
 
 /**
@@ -388,7 +595,9 @@ function notBaseCycle(file, tag, text) {
  *
  * One start/end id per package is unbalanced, so the counters clamp at zero rather than assert.
  */
-export function applyBaseView(doc, { sourceFile = '', retained = null, ruledFired = null } = {}) {
+export function applyBaseView(doc, {
+  sourceFile = '', retained = null, ruledFired = null, correctionsFired = null,
+} = {}) {
   const root = doc.documentElement;
   if (!root) return doc;
 
@@ -419,7 +628,21 @@ export function applyBaseView(doc, { sourceFile = '', retained = null, ruledFire
       // marked inserted is carrying NCC 2022 text. That judgement must be countable — the build
       // prints the total and the source-file breakdown — so a source change that starts or stops
       // producing them is visible rather than absorbed.
-      retained?.push({ file: sourceFile, tag: c.nodeName, text: kept });
+      //
+      // ATTRIBUTED, too: the record names the enclosing unit and the unit itself is marked, so the
+      // disclosure can be put in the file a reader actually opens instead of only in a report that
+      // ships nowhere. Where no unit encloses it the mark goes on the document's ROOT — a
+      // `table-reference`/`image-reference` wrapper is a file of its own, and its content joins a
+      // unit only when `splice` clones it into the citing clause, which carries the mark with it.
+      const unit = enclosingUnit(c) ?? root;
+      unit.setAttribute(RETENTION_ATTR, String((Number(unit.getAttribute(RETENTION_ATTR) ?? 0) || 0) + 1));
+      retained?.push({
+        file: sourceFile,
+        tag: c.nodeName,
+        text: kept,
+        unitTag: unit.nodeName,
+        unitId: attr(unit, 'id'),
+      });
       visit(c);
     }
   };
@@ -457,6 +680,10 @@ export function applyBaseView(doc, { sourceFile = '', retained = null, ruledFire
     while (el.firstChild) parent.insertBefore(el.firstChild, el);
     parent.removeChild(el);
   }
+
+  // R75, LAST: a correction is measured against what the corpus will print, so it is applied to
+  // the finished base view rather than to a tree that still holds the draft's markup.
+  applyRetainedTextCorrections(doc, sourceFile, correctionsFired);
   return doc;
 }
 
@@ -976,6 +1203,10 @@ export function readPackage2022(pkgDir, doc, { sections = null, diagnostics = nu
     // text under a mark that would otherwise have deleted the lot; plus the pointer arm, where the
     // decision is made against the TARGET rather than the pointer's own (always empty) subtree.
     baseViewRetentions: [], draftPointersRestored: [], draftPointersDropped: 0,
+    // R75. One record per transcription correction this read actually applied, so the edition
+    // index can state what was rewritten and against which published page, without either the
+    // index or the report re-deriving it from the table and drifting from what fired.
+    retainedTextCorrections: [],
     // R60. One record per clause read from a sibling package, so the report and the edition index
     // can name a provision whose text did not come out of this publication's own zip.
     recoveredClauses: [],
@@ -984,6 +1215,8 @@ export function readPackage2022(pkgDir, doc, { sections = null, diagnostics = nu
   // R73. Declared here rather than beside the other fired-sets because pass 1 fires it, and a
   // ruling nobody can see stop firing is how 2025-draft text would creep back in unnoticed.
   const ruledFired = new Set();
+  // R75, on the same terms.
+  const correctionsFired = new Set();
   const xmlBasenames = new Set(files.map(f => f.slice(f.lastIndexOf('/') + 1)));
 
   /* -- pass 1: one parse per file, facts kept, DOM discarded ---------------- */
@@ -1008,7 +1241,7 @@ export function readPackage2022(pkgDir, doc, { sections = null, diagnostics = nu
     // this a census of the package rather than of what the map happened to reach — the same
     // distinction the variation census draws, and for the same reason: the number is evidence
     // about the source, and the build prints it.
-    applyBaseView(dom, { sourceFile: file, retained: dg.baseViewRetentions, ruledFired });
+    applyBaseView(dom, { sourceFile: file, retained: dg.baseViewRetentions, ruledFired, correctionsFired });
     const baseIdEl = childEl(root, 'sptc') ?? childEl(root, 'num');
     const f = {
       file,
@@ -1096,7 +1329,7 @@ export function readPackage2022(pkgDir, doc, { sections = null, diagnostics = nu
   const load = file => {
     if (!loaded.has(file)) {
       const dom = new DOMParser(XML_PARSER).parseFromString(fs.readFileSync(path.join(xmlDir, file), 'utf8'), 'text/xml');
-      applyBaseView(dom, { sourceFile: file, ruledFired });
+      applyBaseView(dom, { sourceFile: file, ruledFired, correctionsFired });
       loaded.set(file, dom);
     }
     return loaded.get(file);
@@ -1463,7 +1696,7 @@ export function readPackage2022(pkgDir, doc, { sections = null, diagnostics = nu
           + 'recovering a clause that cites any.', at);
       }
     }
-    applyBaseView(dom, { sourceFile: recovery.conref, ruledFired });
+    applyBaseView(dom, { sourceFile: recovery.conref, ruledFired, correctionsFired });
     return root;
   }
 
@@ -1597,7 +1830,7 @@ export function readPackage2022(pkgDir, doc, { sections = null, diagnostics = nu
   const mapSrc = fs.readFileSync(path.join(xmlDir, 'FlattenedFile.xml'), 'utf8');
   const mapDom = new DOMParser(XML_PARSER).parseFromString(mapSrc, 'text/xml');
   // No `retained` here: pass 1 already walked this file, and the census counts each site once.
-  applyBaseView(mapDom, { sourceFile: 'FlattenedFile.xml', ruledFired });
+  applyBaseView(mapDom, { sourceFile: 'FlattenedFile.xml', ruledFired, correctionsFired });
   loaded.set('FlattenedFile.xml', mapDom);
 
   const ctx0 = {
@@ -1991,7 +2224,18 @@ export function readPackage2022(pkgDir, doc, { sections = null, diagnostics = nu
     ...NOT_BASE_CYCLE_TEXT
       .filter(e => xmlBasenames.has(e.file) && !ruledFired.has(rulingKey(e)))
       .map(e => ({ list: 'NOT_BASE_CYCLE_TEXT', volume: doc.key, clause: e.file, conref: `<${e.tag}> ${e.text}` })),
+    // R75, keyed on a source file for the same reason. A correction whose file this package holds
+    // but whose text it no longer carries throws inside applyBaseView, where the count is known;
+    // what reaches here is the other staleness — an entry naming a file no package contains at all,
+    // which nothing else would ever notice.
+    ...RETAINED_TEXT_CORRECTIONS
+      .filter(e => xmlBasenames.has(e.file) && !correctionsFired.has(correctionKey(e)))
+      .map(e => ({ list: 'RETAINED_TEXT_CORRECTIONS', volume: doc.key, clause: e.file, conref: e.find })),
   ];
+  // What actually fired, in table order, for the edition index to disclose.
+  dg.retainedTextCorrections = RETAINED_TEXT_CORRECTIONS
+    .filter(e => correctionsFired.has(correctionKey(e)))
+    .map(e => ({ file: e.file, find: e.find, replace: e.replace, url: e.url }));
   function unfired(list, name, fired) {
     return list.filter(e => e.volume === doc.key && !fired.has(`${doc.key}|${e.conref}`))
       .map(e => ({ list: name, volume: e.volume, clause: e.clause, conref: e.conref }));
